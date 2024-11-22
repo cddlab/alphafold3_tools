@@ -1,0 +1,58 @@
+[project]
+name = "alphafold3_tools"
+version = "0.0.1"
+description = "Toolkit for alphafold3 input and output files"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["rdkit==2024.3.6", "gemmi==0.7.0", "matplotlib", "pip", "loguru"]
+
+[tool.uv]
+dev-dependencies = ["mypy", "notebook", "pytest", "pytest-cov", "ruff", "pyyaml"]
+
+[tool.ruff]
+select = [
+    "F", # Flake8
+    "B", # Black
+    "I", # isort
+    "E", # error
+    "W", # warning
+]
+ignore = ["F401"]
+exclude = [".ruff_cache", ".ruff.toml", ".ruff.lock"]
+indent-width = 4
+line-length = 88 # Same as Black.
+target-version = "py310"
+fixable = ["ALL"] # Allow fix for all enabled rules (when `--fix`) is provided.
+unfixable = []
+
+[tool.ruff.isort]
+combine-as-imports = true
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+split-on-trailing-comma = true
+
+[tool.ruff.format]
+quote-style = "double" # Like Black, use double quotes for strings.
+
+[tool.ruff.lint.isort]
+known-third-party = ["fastapi", "pydantic", "starlette"]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:.*Jupyter is migrating.*:DeprecationWarning",
+]
+addopts = "-v --color=yes --cov=alphafold3tools --cov-report=term-missing"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+dynamic = ["name", "version"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["alphafold3tools"]
+
+[project.scripts]
+msatojson = 'alphafold3tools.msatojson:main'
+paeplot = 'alphafold3tools.paeplot:main'
+sdftoccd = 'alphafold3tools.sdftoccd:main'

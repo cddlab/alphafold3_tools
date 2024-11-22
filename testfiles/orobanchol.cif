@@ -1,0 +1,89 @@
+data_MY-ORO
+#
+_chem_comp.id MY-ORO
+_chem_comp.name 'MY-ORO'
+_chem_comp.type NON-POLYMER
+_chem_comp.formula C19H22O6
+_chem_comp.mon_nstd_parent_comp_id ?
+_chem_comp.pdbx_synonyms ?
+_chem_comp.formula_weight 346.142
+#
+loop_
+_chem_comp_atom.comp_id
+_chem_comp_atom.atom_id
+_chem_comp_atom.type_symbol
+_chem_comp_atom.charge
+_chem_comp_atom.pdbx_aromatic_flag
+_chem_comp_atom.pdbx_leaving_atom_flag
+_chem_comp_atom.pdbx_model_Cartn_x_ideal
+_chem_comp_atom.pdbx_model_Cartn_y_ideal
+_chem_comp_atom.pdbx_model_Cartn_z_ideal
+_chem_comp_atom.pdbx_component_atom_id
+_chem_comp_atom.pdbx_component_comp_id
+_chem_comp_atom.pdbx_ordinal
+MY-ORO O1 O 0 N N 4.701 -10.087 -0.172 O1 MY-ORO 1
+MY-ORO C2 C 0 N N 5.531 -10.966 -0.480 C2 MY-ORO 2
+MY-ORO O3 O 0 N N 6.823 -10.941 -0.094 O3 MY-ORO 3
+MY-ORO C4 C 0 N N 5.275 -12.094 -1.314 C4 MY-ORO 4
+MY-ORO C5 C 0 N N 4.021 -12.407 -1.984 C5 MY-ORO 5
+MY-ORO C6 C 0 N N 6.463 -12.864 -1.469 C6 MY-ORO 6
+MY-ORO C7 C 0 N N 7.436 -12.205 -0.481 C7 MY-ORO 7
+MY-ORO O8 O 0 N N 8.696 -11.970 -1.055 O8 MY-ORO 8
+MY-ORO C9 C 0 N N 9.528 -11.204 -0.247 C9 MY-ORO 9
+MY-ORO C10 C 0 N N 10.740 -11.872 0.205 C10 MY-ORO 10
+MY-ORO C11 C 0 N N 11.711 -11.294 1.018 C11 MY-ORO 11
+MY-ORO O12 O 0 N N 11.692 -10.163 1.485 O12 MY-ORO 12
+MY-ORO O13 O 0 N N 12.747 -12.172 1.238 O13 MY-ORO 13
+MY-ORO C14 C 0 N N 11.137 -13.277 -0.081 C14 MY-ORO 14
+MY-ORO C15 C 0 N N 12.577 -13.339 0.424 C15 MY-ORO 15
+MY-ORO C16 C 0 N N 12.717 -14.606 1.193 C16 MY-ORO 16
+MY-ORO C17 C 0 N N 14.032 -15.242 1.599 C17 MY-ORO 17
+MY-ORO C18 C 0 N N 14.858 -15.455 0.350 C18 MY-ORO 18
+MY-ORO C19 C 0 N N 14.800 -14.311 2.517 C19 MY-ORO 19
+MY-ORO C20 C 0 N N 13.814 -16.614 2.242 C20 MY-ORO 20
+MY-ORO C21 C 0 N N 12.543 -16.737 3.052 C21 MY-ORO 21
+MY-ORO C22 C 0 N N 11.326 -16.398 2.210 C22 MY-ORO 22
+MY-ORO C23 C 0 N N 11.508 -15.172 1.408 C23 MY-ORO 23
+MY-ORO C24 C 0 N N 10.424 -14.368 0.709 C24 MY-ORO 24
+MY-ORO O25 O 0 N N 9.808 -15.180 -0.273 O25 MY-ORO 25
+#
+loop_
+_chem_comp_bond.comp_id
+_chem_comp_bond.atom_id_1
+_chem_comp_bond.atom_id_2
+_chem_comp_bond.value_order
+_chem_comp_bond.pdbx_aromatic_flag
+_chem_comp_bond.pdbx_stereo_config
+_chem_comp_bond.pdbx_ordinal
+MY-ORO O1 C2 DOUB N N 1
+MY-ORO C2 O3 SING N N 2
+MY-ORO C2 C4 SING N N 3
+MY-ORO O3 C7 SING N N 4
+MY-ORO C4 C5 SING N N 5
+MY-ORO C4 C6 DOUB N N 6
+MY-ORO C6 C7 SING N N 7
+MY-ORO C7 O8 SING N N 8
+MY-ORO O8 C9 SING N N 9
+MY-ORO C9 C10 DOUB N E 10
+MY-ORO C10 C11 SING N N 11
+MY-ORO C10 C14 SING N N 12
+MY-ORO C11 O12 DOUB N N 13
+MY-ORO C11 O13 SING N N 14
+MY-ORO O13 C15 SING N N 15
+MY-ORO C14 C15 SING N N 16
+MY-ORO C14 C24 SING N N 17
+MY-ORO C15 C16 SING N N 18
+MY-ORO C16 C17 SING N N 19
+MY-ORO C16 C23 DOUB N N 20
+MY-ORO C17 C18 SING N N 21
+MY-ORO C17 C19 SING N N 22
+MY-ORO C17 C20 SING N N 23
+MY-ORO C20 C21 SING N N 24
+MY-ORO C21 C22 SING N N 25
+MY-ORO C22 C23 SING N N 26
+MY-ORO C23 C24 SING N N 27
+MY-ORO C24 O25 SING N N 28
+#
+_pdbx_chem_comp_descriptor.type SMILES_CANONICAL
+_pdbx_chem_comp_descriptor.descriptor 'CC1=C[C@@H](O/C=C2/C(=O)O[C@H]3C4=C(CCCC4(C)C)[C@H](O)[C@@H]23)OC1=O'
+#
