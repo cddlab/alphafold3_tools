@@ -4,7 +4,7 @@ version = "0.0.1"
 description = "Toolkit for alphafold3 input and output files"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["rdkit==2024.3.6", "gemmi==0.7.0", "matplotlib", "pip", "loguru"]
+dependencies = ["rdkit>=2024.3.2", "gemmi==0.7.0", "matplotlib", "pip", "loguru"]
 
 [tool.uv]
 dev-dependencies = ["mypy", "notebook", "pytest", "pytest-cov", "ruff", "pyyaml"]
