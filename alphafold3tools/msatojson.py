@@ -1,7 +1,9 @@
+import concurrent.futures
 import json
 import os
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 from dataclasses import dataclass
+from pathlib import Path
 
 from loguru import logger
 
@@ -210,9 +212,9 @@ def generate_input_json_content(
 
 
 def write_input_json_file(
-    inputmsafile: str,
+    inputmsafile: str | Path,
     name: str,
-    outputjsonfile: str,
+    outputjsonfile: str | Path,
 ) -> None:
     """Write AlphaFold3 input JSON file from a3m-format MSA file.
 
@@ -251,6 +253,12 @@ def write_input_json_file(
         f.write(content)
 
 
+def process_a3m_file(a3m_file, output_dir):
+    name = Path(a3m_file).stem
+    output_file = os.path.join(output_dir, f"{name}.json")
+    write_input_json_file(a3m_file, name, output_file)
+
+
 def main():
     parser = ArgumentParser(
         formatter_class=ArgumentDefaultsHelpFormatter,
@@ -259,7 +267,7 @@ def main():
     parser.add_argument(
         "-i",
         "--input",
-        help="Input MSA file in a3m format. e.g. 1bjp.a3m",
+        help="Input A3M file or directory containing A3M files. e.g. 1bjp.a3m",
         type=str,
         required=True,
     )
@@ -271,7 +279,7 @@ def main():
         default="",
     )
     parser.add_argument(
-        "-o", "--out", help="Output JSON file.", type=str, required=True
+        "-o", "--out", help="Output directory or JSON file.", type=str, required=True
     )
     parser.add_argument(
         "-d",
@@ -288,7 +296,34 @@ def main():
     if args.name == "":
         args.name = os.path.splitext(os.path.basename(args.input))[0]
     logger.info(f"Name of the protein complex: {args.name}")
-    write_input_json_file(args.input, args.name, args.out)
+    input_path = Path(args.input)
+    if not input_path.exists():
+        raise FileNotFoundError(f"{input_path} does not exist.")
+    out_path = Path(args.out)
+    if input_path.is_dir():
+        logger.info(f"Input directory: {input_path}")
+        if out_path.suffix == ".json":
+            raise ValueError(
+                "Now the input is directory, so output name must be a directory."
+            )
+        logger.info(f"Output directory: {out_path}")
+        out_path.mkdir(parents=True, exist_ok=True)
+        a3m_files = list(input_path.glob("*.a3m"))
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = [
+                executor.submit(process_a3m_file, a3m_file, out_path)
+                for a3m_file in a3m_files
+            ]
+            concurrent.futures.wait(futures)
+    else:
+        name = input_path.stem
+        if input_path.suffix != ".a3m":
+            raise ValueError("Input file must have .a3m extension.")
+        logger.info(f"Input A3M file: {input_path}")
+        if out_path.suffix != ".json":
+            raise ValueError("Output file must have .json extension.")
+        logger.info(f"Output JSON file: {out_path}")
+        write_input_json_file(args.input, name, out_path)
 
 
 if __name__ == "__main__":
