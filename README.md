@@ -13,8 +13,8 @@ Requirements:
 > `/path/to/workingdirectory` is your working directory.
 >
 > ```bash
-> mkdir -p /path/to/workingdirectory ; cd /path/to/workingdirectory`
-> python3.12 -m venv ~/.venv
+> mkdir -p /path/to/workingdirectory ; cd /path/to/workingdirectory
+> python3.12 -m venv .venv
 > source .venv/bin/activate
 > ```
 
@@ -23,7 +23,7 @@ Requirements:
 # install from GitHub
 python3 -m pip install git+https://github.com/cddlab/alphafold3_tools.git
 # upgrade
-python3 -m pip uninstall alphafold3_tools -y && python3.10 -m pip install --upgrade git+https://github.com/cddlab/alphafold3_tools.git
+python3 -m pip uninstall alphafold3_tools -y && python3 -m pip install --upgrade git+https://github.com/cddlab/alphafold3_tools.git
 ```
 
 On Ubuntu, the commands will be installed in `~/.local/bin` or in the `.venv` directory (e.g. `/path/to/workingdirectory/.venv/bin`). You may need to add this directory to your `PATH` environment variable.
