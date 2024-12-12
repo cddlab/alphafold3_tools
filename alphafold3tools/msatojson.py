@@ -34,6 +34,21 @@ def get_residuelens_stoichiometries(lines) -> tuple[list[int], list[int]]:
 
 
 def split_a3msequences(residue_lens, line) -> list[str]:
+    """Split a3m sequences into a list of a3m sequences.
+    Note: The a3m-format MSA file represents inserted residues with lowercase.
+    The first line (starting with '#') of the MSA file contains residue lengths
+    and stoichiometries of each polypeptide chain.
+    From the second line, the first sequence is the query.
+    After this, the paired MSA blocks are followed by the unpaired MSA.
+    Args:
+        residue_lens: list[int]
+            Residue lengths of each polypeptide chain
+        line: str
+            A3M sequences
+    Returns:
+        a3msequences: list[str]
+            A3M sequences, len(a3msequences) should be the same as len(residue_lens).
+    """
     a3msequences = [""] * len(residue_lens)
     i = 0
     count = 0
