@@ -36,6 +36,8 @@ export PATH=$PATH:~/.local/bin
 
 More detailed usage information can be found by running the commands with the `-h` option.
 
+### msatojson
+
 `msatojson` is a command to convert an a3m-formatted multiple sequence alignment (MSA) file to JSON format. The input name can be specified with the `-n` option.
 
 ```bash
@@ -53,6 +55,8 @@ msatojson -i /path/to/a3m_containing/directory -o /path/to/output/directory
 > [!WARNING]
 > Currently including templates is not supported. I am working on it.
 
+### paeplot
+
 `paeplot` is a command to plot the predicted aligned error (PAE). The color map can be specified with the `-c` option. The default color map is `bwr` (ColabFold-like), but `Greens_r` is also available for AlphaFold Structure Database (AFDB)-like coloring.
 
 ```bash
@@ -61,6 +65,41 @@ paeplot -i /path/to/alphafold3_output/directory -c Greens_r --dpi 300 [-n foo] [
 
 ![greensr](./images/greensr.png)
 ![bwr](./images/bwr.png)
+
+### superpose_ciffiles
+
+`superpose_ciffiles` is a command to superpose the output mmCIF files. The command creates a multi-model mmCIF file containing all the predicted `model.cif` subdirectories. The output file name can be specified with the `-o` option. By default, the output file will be saved as `foo_superposed.cif` in the input directory.
+`-c` option can be used to specify the chain ID to be superposed.
+
+```bash
+superpose_ciffiles -i /path/to/alphafold3_output/directory [-o /path/to/output/directory/foo_superposed.cif] [-c A]
+```
+
+<img src="./images/superposed.png" width="600px" alt="superposed">
+
+In [PyMOL](https://www.pymol.org/), the following command will be useful to visualize the plDDT values.
+
+```bash
+color 0x0053D6, b < 100
+color 0x65CBF3, b < 90
+color 0xFFDB13, b < 70
+color 0xFF7D45, b < 50
+util.cnc
+```
+
+<img src="./images/plddt.png" width="600px" alt="plddt">
+
+> [!NOTE]
+> To visualize only an object of `seed-1_sample-0` with plddt values, type the following command in PyMOL.
+>
+> ```bash
+> color 0x0053D6, seed-1_sample-0 and b < 100
+> color 0x65CBF3, seed-1_sample-0 and b < 90
+> color 0xFFDB13, seed-1_sample-0 and b < 70
+> color 0xFF7D45, seed-1_sample-0 and b < 50
+> ```
+
+### sdf2ccd
 
 `sdf2ccd` is a command to convert sdf file to ccd format.
 

@@ -1,13 +1,13 @@
 [project]
 name = "alphafold3_tools"
-version = "0.0.1"
+version = "0.0.2"
 description = "Toolkit for alphafold3 input and output files"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["rdkit>=2024.3.2", "gemmi==0.7.0", "matplotlib", "pip", "loguru"]
+dependencies = ["rdkit>=2024.3.2", "gemmi>=0.6.0", "matplotlib", "pip", "loguru"]
 
 [tool.uv]
-dev-dependencies = ["mypy", "notebook", "pytest", "pytest-cov", "ruff", "pyyaml"]
+dev-dependencies = ["mypy", "notebook", "pandas", "pytest", "pytest-cov", "ruff", "pyyaml"]
 
 [tool.ruff]
 select = [
@@ -56,3 +56,4 @@ packages = ["alphafold3tools"]
 msatojson = 'alphafold3tools.msatojson:main'
 paeplot = 'alphafold3tools.paeplot:main'
 sdftoccd = 'alphafold3tools.sdftoccd:main'
+superpose_ciffiles = 'alphafold3tools.superpose_ciffiles:main'
