@@ -8,7 +8,7 @@ Requirements:
 
 - Python 3.10 or later
 
-`brew install python@3.11` or `python@3.12` with [Homebrew](https://brew.sh/) is useful to install python3.11 or python3.12 on macOS.
+`brew install python@3.12` with [Homebrew](https://brew.sh/) is useful to install python3.12 on macOS.
 
 > [!NOTE]
 > If you are using python3.12, create and activate venv at first.
