@@ -27,9 +27,20 @@ def get_residuelens_stoichiometries(lines) -> tuple[list[int], list[int]]:
         stoichiometries: list[int]
             Stoichiomerties of each polypeptide chain
     """
-    residue_lens_, stoichiometries_ = lines[0].split("\t")
-    residue_lens = list(map(int, residue_lens_.lstrip("#").split(",")))
-    stoichiometries = list(map(int, stoichiometries_.split(",")))
+    if lines[0].startswith("#"):
+        residue_lens_, stoichiometries_ = lines[0].split("\t")
+        residue_lens = list(map(int, residue_lens_.lstrip("#").split(",")))
+        stoichiometries = list(map(int, stoichiometries_.split(",")))
+    else:
+        # If the first line does not start with '#',
+        # get the residue length from the first sequence.
+        # Always assume a monomer prediction.
+        if not lines[0].startswith(">"):
+            raise ValueError(
+                "The first line of the input MSA file must start with '#' or '>'."
+            )
+        residue_lens = [len(lines[1].strip())]
+        stoichiometries = [1]
     return residue_lens, stoichiometries
 
 
@@ -100,7 +111,8 @@ def get_paired_and_unpaired_msa(
     seqnames_seen = []
     query_seqnames = [int(101 + i) for i in range(cardinality)]
     chain = -1
-    for line in lines[1:]:
+    start = 1 if lines[0].startswith("#") else 0
+    for line in lines[start:]:
         if line.startswith(">"):
             if line not in seqnames_seen:
                 seqnames_seen.append(line)

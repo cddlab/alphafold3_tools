@@ -100,3 +100,30 @@ class TestHomomerMSA:
         assert unpairedmsas[0][1].sequence.startswith(
             "PVVTIELWEGRTPEQKRELVRAVSSAISRVLGCPEEAVHVILHEVPKANWGIGGRLASEL--"
         )
+
+
+@pytest.fixture
+def setup_noheader_a3m():
+    with open("./testfiles/1bjp_no_header.a3m", "r") as f:
+        lines = f.readlines()
+    yield lines
+    print("Closing file")
+
+
+class TestNoHeaderMSA:
+    def test_get_paired_and_unpaired_msa(self, setup_noheader_a3m):
+        residue_lens, stoichiometries = get_residuelens_stoichiometries(
+            lines=setup_noheader_a3m
+        )
+        assert residue_lens == [62]
+        assert stoichiometries == [1]
+        pairedmsas, unpairedmsas = get_paired_and_unpaired_msa(
+            lines=setup_noheader_a3m, residue_lens=residue_lens, cardinality=1
+        )
+        assert len(unpairedmsas) == 1
+        assert len(unpairedmsas[0]) == 6
+        assert [len(v) for v in unpairedmsas] == [6]
+        assert pairedmsas == [[]]
+        assert unpairedmsas[0][1].sequence.startswith(
+            "PVVTIELWEGRTPEQKRELVRAVSSAISRVLGCPEEAVHVILHEVPKANWGIGGRLASEL--"
+        )
