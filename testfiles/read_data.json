@@ -1,0 +1,34 @@
+{
+    "dialect": "alphafold3",
+    "version": 1,
+    "name": "testprotein_subtrate",
+    "sequences": [
+        {
+            "protein": {
+                "id": ["A", "B"],
+                "sequence": "MSNTNQGPVTVLGLGMMGAALASAFVKNGNPTTVWNRSAGKADALVEQGAVFAPDIKEAIAASPVVVVCVSTYEVLNELVAGAATELKGKVVVNLTSGTPDDARAFAAWAEQNGVRYLDGAIMAVPQMIGLPQALIFYAGSQELYGEHEELLKLLAGTNVYLGTDAGVPLVYDLGLLSLLWSSLAGYFHAVALVNSAGVSAEAFTPFALTWIEHVITPAIPPSAQEIDSSSFETEVSSLAVNKAAIEHLVATSKQLGINSDFSASIQALIERRVAQGHGTHSLASLVEAFKQG",
+                "modifications": [],
+                "unpairedMsa": ">101\nMSNTNQGPVTVLGLGMMGAALASAFVKNGNPTTVWNRSAGKADALVEQGAVFAPDIKEAIAASPVVVVCVSTYEVLNELVAGAATELKGKVVVNLTSGTPDDARAFAAWAEQNGVRYLDGAIMAVPQMIGLPQALIFYAGSQELYGEHEELLKLLAGTNVYLGTDAGVPLVYDLGLLSLLWSSLAGYFHAVALVNSAGVSAEAFTPFALTWIEHVITPAIPPSAQEIDSSSFETEVSSLAVNKAAIEHLVATSKQLGINSDFSASIQALIERRVAQGHGTHSLASLVEAFKQG\n>UniRef100_UPI001557F259\t235\t0.397\t5.452E-65\t0\t291\t293\t0\t290\t292\nMNAERRTPVTVIGLGNMGAALAAALLERGHETTVWNRTPAKAQALAARGARVAATPTEAVAASELVIACVLDYDALHAVLDPAAATLAGRTLVNLTTGSPEQAREFAAWAAERGVAYLDGAVMTTPPGVGSPEMMFLYSGPRAAFDAHRSVLEALG-DPLFLGEDAGFAPLYDVALLGLMWAAFGGWLHGTALVGADGAKATEFAPLALRWLGGAVSGFITRYAAQVEDGSYPGDDATVDVQITAIDHLIHAAADRGVDSALPELLKAFMERTHAAGHGGDSFASVIEVLRK-\n>UniRef100_A0A516R314\t231\t0.393\t2.342E-63\t0\t291\t293\t0\t290\t292\nMNAERRTPVTVIGLGNMGAALAAALLERGHETTVWNRTPAKAEALAARGARAAATPGEAVAASGLVVACVLDYDALHAVVDPVVATLAGRTLVNLTTGSPEQAREFAAWAASHGVDYLDGAVMTTPPGVGSPEMMLLYSGPRTAFDTYEPVLEALG-DPLFLGEDAGLASLYDVALLGLMWAAFGGWLHGTALVGADGAKATEFAPLALRWLGGAVNAFITRYAAQVDEGRYPGDDATVDVQITAIDHLIHAAADRGVDDALPRLLKATMERTHAAGHGGDSFASVIEVLRK-\n",
+                "pairedMsa": "",
+                "templates": []
+            }
+        },
+        {
+          "ligand": {
+            "id": ["C", "D"],
+            "ccdCodes": ["MY-PRD"]
+          }
+        },
+        {
+          "ligand": {
+            "id": ["E", "F"],
+            "ccdCodes": ["NAP"]
+          }
+        }
+    ],
+    "modelSeeds": [
+        1
+    ],
+    "bondedAtomPairs": null,
+    "userCCD": "data_MY-PRD\n_chem_comp.id MY-PRD\n_chem_comp.name 'MY-PRD'\n_chem_comp.type NON-POLYMER\n_chem_comp.formula C12H17NO\n_chem_comp.mon_nstd_parent_comp_id ?\n_chem_comp.pdbx_synonyms ?\n_chem_comp.formula_weight 191.131\n\nloop_\n_chem_comp_atom.comp_id\n_chem_comp_atom.atom_id\n_chem_comp_atom.type_symbol\n_chem_comp_atom.charge\n_chem_comp_atom.pdbx_aromatic_flag\n_chem_comp_atom.pdbx_leaving_atom_flag\n_chem_comp_atom.pdbx_model_Cartn_x_ideal\n_chem_comp_atom.pdbx_model_Cartn_y_ideal\n_chem_comp_atom.pdbx_model_Cartn_z_ideal\n_chem_comp_atom.pdbx_component_atom_id\n_chem_comp_atom.pdbx_component_comp_id\n_chem_comp_atom.pdbx_ordinal\nMY-PRD C1 C 0 N N -4.982 -0.261 -1.171 C1 MY-PRD 1\nMY-PRD C2 C 0 N N -4.003 -0.632 -0.112 C2 MY-PRD 2\nMY-PRD C3 C 0 N N -2.741 -0.083 0.011 C3 MY-PRD 3\nMY-PRD C4 C 0 N N -0.469 0.212 1.072 C4 MY-PRD 4\nMY-PRD C5 C 0 N N -0.472 1.712 0.922 C5 MY-PRD 5\nMY-PRD C6 C 0 N N 0.510 2.186 0.125 C6 MY-PRD 6\nMY-PRD C7 C 0 N N 1.280 1.056 -0.322 C7 MY-PRD 7\nMY-PRD N8 N 0 N N 2.477 1.067 -0.824 N8 MY-PRD 8\nMY-PRD C9 C 0 N N 3.303 -0.138 -1.048 C9 MY-PRD 9\nMY-PRD C10 C 0 N N 2.481 -1.421 -0.945 C10 MY-PRD 10\nMY-PRD C11 C 0 N N 1.511 -1.349 0.241 C11 MY-PRD 11\nMY-PRD O12 O 0 N N 2.185 -0.993 1.431 O12 MY-PRD 12\nMY-PRD C13 C 0 N N 0.537 -0.214 -0.038 C13 MY-PRD 13\nMY-PRD C14 C 0 N N -1.824 -0.422 0.995 C14 MY-PRD 14\n\nloop_\n_chem_comp_bond.comp_id\n_chem_comp_bond.atom_id_1\n_chem_comp_bond.atom_id_2\n_chem_comp_bond.value_order\n_chem_comp_bond.pdbx_aromatic_flag\n_chem_comp_bond.pdbx_stereo_config\n_chem_comp_bond.pdbx_ordinal\nMY-PRD C1 C2 SING N N 1\nMY-PRD C2 C3 DOUB N E 2\nMY-PRD C3 C14 SING N N 3\nMY-PRD C4 C5 SING N N 4\nMY-PRD C4 C13 SING N N 5\nMY-PRD C4 C14 SING N N 6\nMY-PRD C5 C6 DOUB N N 7\nMY-PRD C6 C7 SING N N 8\nMY-PRD C7 N8 DOUB N N 9\nMY-PRD C7 C13 SING N N 10\nMY-PRD N8 C9 SING N N 11\nMY-PRD C9 C10 SING N N 12\nMY-PRD C10 C11 SING N N 13\nMY-PRD C11 O12 SING N N 14\nMY-PRD C11 C13 SING N N 15\n\n_pdbx_chem_comp_descriptor.type SMILES_CANONICAL\n_pdbx_chem_comp_descriptor.descriptor 'C/C=C/C[C@@H]1C=CC2=NCC[C@@H](O)[C@H]21'\n"
+}

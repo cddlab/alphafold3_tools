@@ -103,11 +103,33 @@ util.cnc
 
 ### sdf2ccd
 
-`sdf2ccd` is a command to convert sdf file to ccd format.
+`sdf2ccd` is a command to convert sdf file to ccd format. Please refer to the [AlphaFold3's input document](https://github.com/google-deepmind/alphafold3/blob/main/docs/input.md#user-provided-ccd-format) for the detail of User-provided CCD format.
 
 ```bash
-sdf2ccd -i input.sdf -o output.ccd -n STR
+sdf2ccd -i input.sdf -o userccd.cif -n STR
 ```
+
+### modjson
+
+`modjson` is a command to modify an existing AlphaFold3 input json file. This tool is useful to add/modify the ligand entities and User-provided CCD string in an input json file.
+
+```bash
+modjson -i input.json -o output.json [-n jobname] [-p] \
+       [-a smiles CCOCCC 1 -a ccdCodes PRD 2] \
+       [-u userccd1.cif userccd2.cif]
+```
+
+- `-i`: Input json file. Mandatory.
+- `-o`: Output json file. Mandatory.
+- `-n`: Job name. Optional. Sets the job name in the input JSON file.
+- `-p`: Purge all ligand entities from the input JSON file at first.
+- `-a`: Add ligand to the input JSON file. Provide 'ligand type', 'ligand name', and 'number of the ligand molecule'. The 'ligand type' must be either 'smiles' or 'ccdCodes'. Multiple ligands can be added.
+  - Example: `-a smiles CCOCCC 1 -a ccdCodes PRD 2 -a ...`
+- `-u`: Add user provided ccdCodes to the input JSON file. Multiple files can be provided.
+  - Example: `-u userccd1.cif userccd2.cif`
+
+> [!NOTE]
+> A `*_data.json` file in the AlphaFold3's output directory can be also used as an input JSON file of `modjson`.
 
 Other tools are being developed and will be added.
 

@@ -246,9 +246,7 @@ def write_pdb_ccd_cif_descriptor(mol, cif_block) -> None:
     )
 
 
-def convert_sdf_to_ccd(
-    sdffile: str, outciffile: str, mol_name: str, removeHs: bool = True
-) -> str:
+def convert_sdf_to_ccd(sdffile: str, mol_name: str, removeHs: bool = True) -> str:
     """Converts an SDF file to a CCD CIF file.
 
     Args:
@@ -261,7 +259,7 @@ def convert_sdf_to_ccd(
     """
     doc = gemmi.cif.Document()
     mol = rdkit.Chem.SDMolSupplier(
-        sdffile, sanitize=True, removeHs=removeHs, strictParsing=True
+        sdffile, sanitize=True, removeHs=removeHs, strictParsing=False
     )[0]
     cif_block = doc.add_new_block(mol_name)
     write_info_block(mol, cif_block, mol_name)
@@ -269,9 +267,9 @@ def convert_sdf_to_ccd(
     write_bond_block(mol, cif_block, mol_name)
     write_pdb_ccd_cif_descriptor(mol, cif_block)
     options = gemmi.cif.WriteOptions()
-    doc.write_file(outciffile, options)
-    ccd_as_string = doc.as_string(options).replace("\n", r"\n")
-    return ccd_as_string
+    # Add '# ' after each block
+    cif_string = doc.as_string(options).replace("\n\n", "\n# \n")
+    return cif_string
 
 
 def main():
@@ -289,9 +287,10 @@ def main():
     parser.add_argument(
         "-n",
         "--name",
-        help="3-letter code of the ligand (e.g. STR).",
+        help="3-letter code of the ligand (e.g. STR), but more than 3 letters "
+        "are allowed.",
         type=str,
-        default="",
+        required=True,
     )
     parser.add_argument("-o", "--out", help="Output CIF file.", type=str, required=True)
     parser.add_argument(
@@ -305,7 +304,13 @@ def main():
     )
     args = parser.parse_args()
     log_setup(args.loglevel)
-    convert_sdf_to_ccd(args.input, args.out, args.name)
+    with open(args.out, "w") as f:
+        f.write(
+            convert_sdf_to_ccd(
+                args.input,
+                args.name,
+            )
+        )
 
 
 if __name__ == "__main__":

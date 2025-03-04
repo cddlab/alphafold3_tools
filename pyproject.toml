@@ -1,13 +1,13 @@
 [project]
 name = "alphafold3_tools"
-version = "0.0.2"
+version = "0.0.3"
 description = "Toolkit for alphafold3 input and output files"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["rdkit>=2024.3.2", "gemmi>=0.6.0", "matplotlib", "pip", "loguru"]
 
 [tool.uv]
-dev-dependencies = ["mypy", "notebook", "pandas", "pytest", "pytest-cov", "ruff", "pyyaml"]
+dev-dependencies = ["mypy", "notebook", "pandas", "pytest", "pytest-cov", "ruff", "pyyaml", "pandas"]
 
 [tool.ruff]
 select = [
@@ -40,7 +40,7 @@ known-third-party = ["fastapi", "pydantic", "starlette"]
 filterwarnings = [
     "ignore:.*Jupyter is migrating.*:DeprecationWarning",
 ]
-addopts = "-v --color=yes --cov=alphafold3tools --cov-report=term-missing"
+addopts = "-vv --color=yes --cov=alphafold3tools --cov-report=term-missing --capture=no"
 
 [build-system]
 requires = ["hatchling"]
@@ -56,4 +56,5 @@ packages = ["alphafold3tools"]
 msatojson = 'alphafold3tools.msatojson:main'
 paeplot = 'alphafold3tools.paeplot:main'
 sdftoccd = 'alphafold3tools.sdftoccd:main'
+modjson = 'alphafold3tools.modjson:main'
 superpose_ciffiles = 'alphafold3tools.superpose_ciffiles:main'
