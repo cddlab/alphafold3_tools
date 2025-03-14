@@ -133,6 +133,14 @@ modjson -i input.json -o output.json [-n jobname] [-p] \
 
 Other tools are being developed and will be added.
 
+### jsontomsa
+
+`jsontomsa` is a command to extract MSA from the AlphaFold3 input JSON file. The output file name can be specified with the `-o` option.
+
+```bash
+jsontomsa -i /path/to/alphafold3_data.json -o /path/to/out.a3m
+```
+
 ## Acknowledgements
 
 This tool uses the following libraries:

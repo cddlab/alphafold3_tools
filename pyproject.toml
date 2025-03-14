@@ -1,6 +1,6 @@
 [project]
 name = "alphafold3_tools"
-version = "0.0.3"
+version = "0.0.4"
 description = "Toolkit for alphafold3 input and output files"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -54,6 +54,7 @@ packages = ["alphafold3tools"]
 
 [project.scripts]
 msatojson = 'alphafold3tools.msatojson:main'
+jsontomsa = 'alphafold3tools.jsontomsa:main'
 paeplot = 'alphafold3tools.paeplot:main'
 sdftoccd = 'alphafold3tools.sdftoccd:main'
 modjson = 'alphafold3tools.modjson:main'
