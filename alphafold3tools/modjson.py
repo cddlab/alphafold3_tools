@@ -232,8 +232,8 @@ def modjson(
                                          to the input JSON file.
         debug (str): Print lots of debugging statements.
     """
+    logger.info(f"Reading input JSON file: {input}")
     data = read_json_data(input)
-
     if purging:
         logger.info("Purging current ligand entities from the input JSON file.")
         data = purge_ligand(data)
@@ -258,8 +258,10 @@ def modjson(
         data = modify_name(data, name)
 
     if userccd_to_be_added:
+        logger.info("Adding user provided ccdCodes to the input JSON file.")
         data = add_userccd(data, userccd_to_be_added)
 
+    logger.info(f"Output JSON file: {output}")
     write_json_data(output, data)
 
 
