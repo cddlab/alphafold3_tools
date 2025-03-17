@@ -70,7 +70,7 @@ def remove_ccdcodes(data: dict, ccdcodes_to_remove: list[str]) -> dict:
     return new_data
 
 
-def purge_ligands(data: dict) -> dict:
+def purge_ligand(data: dict) -> dict:
     """Purges all ligand entities from AlphaFold3 json data.
     Args:
         data (dict): AlphaFold3 json data.
@@ -212,49 +212,53 @@ def add_userccd(data: dict, userccd_files: list[str]) -> dict:
 def modjson(
     input,
     output,
-    add_ligand,
-    purge_ligands,
-    remove_ccdcodes=None,
+    ligands_to_be_added=None,
+    purging=False,
+    ligands_to_be_removed=None,
     name=None,
-    userccdfiles=None,
+    userccd_to_be_added=None,
     debug="SUCCESS",
 ) -> None:
     """Modifies AlphaFold3 JSON file.
     Args:
         input (str): Input AlphaFold3 JSON file.
         output (str): Output JSON file.
-        add_ligand (list[str]): Add ligand to the input JSON file.
-        purge_ligands (bool): Purge all ligands from the input JSON file at first.
-        remove_ccdcodes (list): Remove ligands with ccdcodes from the input JSON file.
+        ligands_to_be_added (list[list[str]]): Add ligand to the input JSON file.
+        purge_ligand (bool): Purge all ligands from the input JSON file at first.
+        ligands_to_be_removed (list): Remove ligands with ccdcodes
+                                      from the input JSON file.
         name (str): Set the job name in the input JSON file.
-        userccdfiles (list[str]): Add user provided ccdCodes to the input JSON file.
+        userccd_to_be_added (list[str]): Add user provided ccdCodes
+                                         to the input JSON file.
         debug (str): Print lots of debugging statements.
     """
     data = read_json_data(input)
-    log_setup(debug)
 
-    if purge_ligands:
+    if purging:
         logger.info("Purging current ligand entities from the input JSON file.")
-        data = purge_ligands(data)
-    if remove_ccdcodes:
-        data = remove_ccdcodes(data, remove_ccdcodes)
-    if add_ligand:
-        ligand_type, ligand_name, num_ligand = add_ligand
-        if ligand_type not in ["smiles", "ccdCodes"]:
-            raise ValueError(
-                f"Invalid ligand type: {ligand_type}. "
-                "The ligand type must be either 'smiles' or 'ccdCodes'."
-            )
-        ligand_type_literal = cast(Literal["smiles", "ccdCodes"], ligand_type)
-        data = add_ligand(data, ligand_type_literal, ligand_name, int(num_ligand))
+        data = purge_ligand(data)
+    if ligands_to_be_removed:
+        logger.info("Removing ligand entities from the input JSON file.")
+        data = remove_ccdcodes(data, ligands_to_be_removed)
+    if ligands_to_be_added:
+        logger.info("Adding ligand entities to the input JSON file.")
+        for ligand_input in ligands_to_be_added:
+            ligand_type, ligand_name, num_ligand = ligand_input
+            if ligand_type not in ["smiles", "ccdCodes"]:
+                raise ValueError(
+                    f"Invalid ligand type: {ligand_type}. "
+                    "The ligand type must be either 'smiles' or 'ccdCodes'."
+                )
+            ligand_type_literal = cast(Literal["smiles", "ccdCodes"], ligand_type)
+            data = add_ligand(data, ligand_type_literal, ligand_name, int(num_ligand))
     data = fix_sequence_ids(data)
 
     if name:
         logger.info(f"Setting the job name to: {name}")
         data = modify_name(data, name)
 
-    if userccdfiles:
-        data = add_userccd(data, userccdfiles)
+    if userccd_to_be_added:
+        data = add_userccd(data, userccd_to_be_added)
 
     write_json_data(output, data)
 
@@ -288,6 +292,7 @@ def main():
         "The 'ligand type' must be either 'smiles' or 'ccdCodes'.\n"
         "Multiple ligands can be added.\n"
         "e.g. -a smiles CCOCCC 1 -a ccdCodes PRD 2",
+        dest="ligands_to_be_added",
         type=str,
         nargs=3,
         action="append",
@@ -295,7 +300,8 @@ def main():
     )
     parser.add_argument(
         "-p",
-        "--purge_ligands",
+        "--purge_ligand",
+        dest="purging",
         help="Purge all ligands from the input JSON file at first.",
         action="store_true",
     )
@@ -305,6 +311,7 @@ def main():
         help="Remove ligands with ccdcodes from the input JSON file. Multiple ccdcodes "
         "can be provided.\n"
         "e.g. -r PRD ATP",
+        dest="ligands_to_be_removed",
         type=str,
         nargs="*",
         metavar="ccdcode",
@@ -323,6 +330,7 @@ def main():
         "Multiple files can be provided.\n"
         "e.g. -u userccd1.cif userccd2.cif",
         type=str,
+        dest="userccd_to_be_added",
         nargs="*",
         metavar="userccd_file",
     )
@@ -336,14 +344,15 @@ def main():
         default="SUCCESS",
     )
     args = parser.parse_args()
+    log_setup(args.loglevel)
     modjson(
         args.input_json,
         args.out,
-        args.add_ligand,
-        args.purge_ligands,
-        args.remove_ccdcodes,
+        args.ligands_to_be_added,
+        args.purging,
+        args.ligands_to_be_removed,
         args.name,
-        args.add_userccd,
+        args.userccd_to_be_added,
         args.loglevel,
     )
 
