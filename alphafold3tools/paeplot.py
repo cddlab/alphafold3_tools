@@ -114,7 +114,6 @@ def plot_all_paes(
         FileNotFoundError(f"{jsonfile} does not exist.")
     with open(jsonfile, "r") as f:
         data = json.load(f)
-    # data[pae]をnumpyに変換
     data["pae"] = np.array(data["pae"])
     chain_ids_and_lengths = get_chain_ids_and_lengths(data["token_chain_ids"])
     fig, axes = plt.subplots(
@@ -162,6 +161,8 @@ def plot_all_paes(
     plt.tight_layout()
     png_name = f"{dir}/{basename}_{out}.png"
     plt.savefig(png_name, dpi=dpi)
+    plt.clf()
+    plt.close()
 
 
 def plot_best_pae(
@@ -188,7 +189,6 @@ def plot_best_pae(
         FileNotFoundError(f"{jsonfile} does not exist.")
     with open(jsonfile, "r") as f:
         data = json.load(f)
-    # data[pae]をnumpyに変換
     data["pae"] = np.array(data["pae"])
     chain_ids_and_lengths = get_chain_ids_and_lengths(data["token_chain_ids"])
     fig, ax = plt.subplots(figsize=(3.6, 4.2), dpi=300)
@@ -209,6 +209,8 @@ def plot_best_pae(
     )
     plt.tight_layout()
     plt.savefig(png_name, dpi=dpi)
+    plt.clf()
+    plt.close()
 
 
 def main():
