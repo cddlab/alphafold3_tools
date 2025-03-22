@@ -101,12 +101,12 @@ util.cnc
 > color 0xFF7D45, seed-1_sample-0 and b < 50
 > ```
 
-### sdf2ccd
+### sdftoccd
 
-`sdf2ccd` is a command to convert sdf file to ccd format. Please refer to the [AlphaFold3's input document](https://github.com/google-deepmind/alphafold3/blob/main/docs/input.md#user-provided-ccd-format) for the detail of User-provided CCD format.
+`sdftoccd` is a command to convert sdf file to ccd format. Please refer to the [AlphaFold3's input document](https://github.com/google-deepmind/alphafold3/blob/main/docs/input.md#user-provided-ccd-format) for the detail of User-provided CCD format.
 
 ```bash
-sdf2ccd -i input.sdf -o userccd.cif -n STR
+sdftoccd -i input.sdf -o userccd.cif -n STR
 ```
 
 ### modjson
