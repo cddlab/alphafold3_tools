@@ -1,15 +1,21 @@
 [project]
 name = "alphafold3_tools"
-version = "0.0.5"
+version = "0.0.6"
 description = "Toolkit for alphafold3 input and output files"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["rdkit>=2024.3.2", "gemmi>=0.6.0", "matplotlib", "pip", "loguru"]
+dependencies = ["rdkit>=2024.3.2", "gemmi>=0.7.0", "matplotlib", "pip", "loguru"]
 
 [tool.uv]
 dev-dependencies = ["mypy", "notebook", "pandas", "pytest", "pytest-cov", "ruff", "pyyaml", "pandas"]
 
 [tool.ruff]
+indent-width = 4
+line-length = 88 # Same as Black.
+exclude = [".ruff_cache", ".ruff.toml", ".ruff.lock"]
+target-version = "py310"
+
+[tool.ruff.lint]
 select = [
     "F", # Flake8
     "B", # Black
@@ -17,12 +23,8 @@ select = [
     "E", # error
     "W", # warning
 ]
-ignore = ["F401"]
-exclude = [".ruff_cache", ".ruff.toml", ".ruff.lock"]
-indent-width = 4
-line-length = 88 # Same as Black.
-target-version = "py310"
-fixable = ["ALL"] # Allow fix for all enabled rules (when `--fix`) is provided.
+ignore = ["F401", "E501"]
+fixable = ["ALL"]
 unfixable = []
 
 [tool.ruff.isort]
@@ -31,7 +33,7 @@ section-order = ["future", "standard-library", "third-party", "first-party", "lo
 split-on-trailing-comma = true
 
 [tool.ruff.format]
-quote-style = "double" # Like Black, use double quotes for strings.
+quote-style = "double"
 
 [tool.ruff.lint.isort]
 known-third-party = ["fastapi", "pydantic", "starlette"]
