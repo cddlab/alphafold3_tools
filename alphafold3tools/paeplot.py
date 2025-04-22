@@ -1,5 +1,4 @@
 import json
-import re
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 from pathlib import Path
 
@@ -11,6 +10,7 @@ from matplotlib import rcParams
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from alphafold3tools.log import log_setup
+from alphafold3tools.utils import get_seednumbers
 
 matplotlib.use("Agg")
 
@@ -27,23 +27,6 @@ def get_chain_ids_and_lengths(token_chain_ids: list[str]) -> dict:
         chain_id: token_chain_ids.count(chain_id) for chain_id in unique_chain_ids
     }
     return count_dict
-
-
-def get_seednumbers(dir: str | Path) -> list[int]:
-    """Get the seed numbers from the directory names.
-
-    Args:
-        dir (str | Path): Directory containing the subdirectories
-
-    Returns:
-        list[int]: List of seed numbers
-    """
-    pattern = re.compile(r"seed-(\d+)_sample-[0-4]")
-    subdirs = [d for d in Path(dir).iterdir() if d.is_dir() and pattern.match(d.name)]
-    seednumbers: list[int] = list(
-        {int(m.group(1)) for d in subdirs if (m := pattern.match(d.name))}
-    )
-    return sorted(seednumbers)
 
 
 def map_with_colorbar(
@@ -109,10 +92,10 @@ def plot_all_paes(
     logger.info(
         f"The input directory is {dir}. The output plot will be saved as {png_name}."
     )
-    jsonfile = Path(dir) / f"{basename}_confidences.json"
-    if not jsonfile.exists():
-        FileNotFoundError(f"{jsonfile} does not exist.")
-    with open(jsonfile, "r") as f:
+    bestconfidencejsonfile = Path(dir) / f"{basename}_confidences.json"
+    if not bestconfidencejsonfile.exists():
+        FileNotFoundError(f"{bestconfidencejsonfile} does not exist.")
+    with open(bestconfidencejsonfile, "r") as f:
         data = json.load(f)
     data["pae"] = np.array(data["pae"])
     chain_ids_and_lengths = get_chain_ids_and_lengths(data["token_chain_ids"])
@@ -124,12 +107,21 @@ def plot_all_paes(
     for i, seed in enumerate(seednumbers):
         for j in range(5):
             subdir = Path(dir) / f"seed-{seed}_sample-{j}"
-            jsonfile = subdir / "confidences.json"
-            if not jsonfile.exists():
-                FileNotFoundError(f"{jsonfile} does not exist.")
-            with open(jsonfile, "r") as f:
-                data = json.load(f)
             model_name = f"seed-{seed}_sample-{j}"
+            # before 2025-03-10, the name of jsonfile was "confidences.json"
+            oldconfidencefile = subdir / "confidences.json"
+            # after 2025-03-10, the json file is f"{basename}_{model_name}_confidences.json
+            newconfidencefile = subdir / f"{basename}_{model_name}_confidences.json"
+            if oldconfidencefile.exists():
+                confidencejsonfile = oldconfidencefile
+            elif newconfidencefile.exists():
+                confidencejsonfile = newconfidencefile
+            else:
+                FileNotFoundError(
+                    f"No {oldconfidencefile} or {newconfidencefile} found."
+                )
+            with open(confidencejsonfile, "r") as f:
+                data = json.load(f)
             if len(seednumbers) == 1:
                 map_with_colorbar(
                     fig,

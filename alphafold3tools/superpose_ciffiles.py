@@ -1,10 +1,12 @@
 import os
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
+from pathlib import Path
 
 import gemmi
 from loguru import logger
 
 from alphafold3tools.log import log_setup
+from alphafold3tools.utils import get_seednumbers
 
 
 def superpose_ciffiles(
@@ -25,13 +27,29 @@ def superpose_ciffiles(
             inputdir, os.path.basename(inputdir) + "_superposed.cif"
         )
     logger.info(f"Output file: {outciffile}")
-    # get all model.cif files in the subdirectories of the input directory
-    # remove the best model from the list
-    ciffiles = [
-        ciffile
-        for ciffile in sorted(list(gemmi.CifWalk(inputdir)))
-        if ciffile.endswith("/model.cif")
-    ]
+
+    seednumbers = get_seednumbers(inputdir)
+    dir = Path(inputdir).resolve()
+    basename = Path(dir).name
+    ciffiles = []
+    for seed in seednumbers:
+        for j in range(5):
+            subdir = os.path.join(inputdir, f"seed-{seed}_sample-{j}")
+            # after 2025-03-10, the name of ciffile is f"{basename}_{model_name}_model.cif
+            new_ciffilename = os.path.join(
+                subdir, f"{basename}_seed-{seed}_sample-{j}_model.cif"
+            )
+            # before 2025-03-10, the name of ciffile was "model.cif"
+            old_ciffilename = os.path.join(subdir, "model.cif")
+            if os.path.exists(new_ciffilename):
+                modelfile = new_ciffilename
+            elif os.path.exists(old_ciffilename):
+                modelfile = old_ciffilename
+            else:
+                raise FileNotFoundError(
+                    f"{old_ciffilename} or {new_ciffilename} not found in {subdir}."
+                )
+            ciffiles.append(modelfile)
     outdoc = gemmi.cif.Document()
     for ciffile in ciffiles:
         subdirname = os.path.basename(os.path.dirname(ciffile))

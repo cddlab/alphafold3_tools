@@ -1,3 +1,7 @@
+import re
+from pathlib import Path
+
+
 def int_id_to_str_id(num: int) -> str:
     """Encodes a number as a string, using reverse spreadsheet style naming.
     This block is cited from
@@ -20,3 +24,20 @@ def int_id_to_str_id(num: int) -> str:
         output.append(chr(num % 26 + ord("A")))
         num = num // 26 - 1
     return "".join(output)
+
+
+def get_seednumbers(dir: str | Path) -> list[int]:
+    """Get the seed numbers from the directory names.
+
+    Args:
+        dir (str | Path): Directory containing the subdirectories
+
+    Returns:
+        list[int]: List of seed numbers
+    """
+    pattern = re.compile(r"seed-(\d+)_sample-[0-4]")
+    subdirs = [d for d in Path(dir).iterdir() if d.is_dir() and pattern.match(d.name)]
+    seednumbers: list[int] = list(
+        {int(m.group(1)) for d in subdirs if (m := pattern.match(d.name))}
+    )
+    return sorted(seednumbers)
