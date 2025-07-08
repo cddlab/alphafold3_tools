@@ -1,6 +1,6 @@
 [project]
 name = "alphafold3_tools"
-version = "0.0.7"
+version = "0.0.8"
 description = "Toolkit for alphafold3 input and output files"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -60,4 +60,5 @@ jsontomsa = 'alphafold3tools.jsontomsa:main'
 paeplot = 'alphafold3tools.paeplot:main'
 sdftoccd = 'alphafold3tools.sdftoccd:main'
 modjson = 'alphafold3tools.modjson:main'
+fastatojson = 'alphafold3tools.fastatojson:main'
 superpose_ciffiles = 'alphafold3tools.superpose_ciffiles:main'

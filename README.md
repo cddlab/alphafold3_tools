@@ -57,6 +57,52 @@ msatojson -i /path/to/a3m_containing/directory -o /path/to/output/directory
 > [!WARNING]
 > Currently including templates is not supported. I am working on it.
 
+### fastatojson
+
+`fastatojson` is a command to convert a FASTA file to JSON format compatible with AlphaFold3.
+
+```bash
+fastatojson -i input.fasta [-s 1 2 3 ...] [-d]
+```
+
+- `-i`: Input FASTA file. Mandatory.
+- `-s`: Model seeds to be used. Optional. Default is `1`. Multiple seeds can be specified.
+- `-d`: Debug mode. Optional. If specified, the command will print debug information.
+
+For example, if you have a FASTA file containing two sequences, `input.fasta`:
+
+```shell
+>P12345
+KAKDLSKCLS
+>Q67890
+KADFILCSLK
+>I23L45_I3PLS2
+LAKDCL:KKALS
+```
+
+You will obtain three JSON files, `p12345.json`, `q67890.json`, and `i23l45_i3pls2.json`. The last one contains two sequences, `LAKDCL` and `KKALS`, which are separated by a colon (`:`). The output JSON files will look like this:
+
+```json
+{
+  "name": "i23l45_i3pls2",
+  "dialect": "alphafold3",
+  "version": 1,
+  "sequences": [
+    {
+      "protein": {
+        "id": ["A"],
+        "sequence": "LAKDCL"
+      },
+      "protein": {
+        "id": ["B"],
+        "sequence": "KKALS"
+      }
+    }
+  ],
+  "modelSeeds": [1],
+}
+```
+
 ### paeplot
 
 `paeplot` is a command to plot the predicted aligned error (PAE). The color map can be specified with the `-c` option. The default color map is `bwr` (ColabFold-like), but `Greens_r` is also available for AlphaFold Structure Database (AFDB)-like coloring.
@@ -115,7 +161,7 @@ sdftoccd -i input.sdf -o userccd.cif -n STR
 
 ```bash
 modjson -i input.json -o output.json [-n jobname] [-p] \
-       [-a smiles CCOCCC 1 -a ccdCodes PRD 2] \
+       [-a smiles "CCOCCC" 1 -a ccdCodes PRD 2] \
        [-u userccd1.cif userccd2.cif]
 ```
 
@@ -124,7 +170,7 @@ modjson -i input.json -o output.json [-n jobname] [-p] \
 - `-n`: Job name. Optional. Sets the job name in the input JSON file.
 - `-p`: Purge all ligand entities from the input JSON file at first.
 - `-a`: Add ligand to the input JSON file. Provide 'ligand type', 'ligand name', and 'number of the ligand molecule'. The 'ligand type' must be either 'smiles' or 'ccdCodes'. Multiple ligands can be added.
-  - Example: `-a smiles CCOCCC 1 -a ccdCodes PRD 2 -a ...`
+  - Example: `-a smiles "CCOCCC" 1 -a ccdCodes PRD 2 -a ...`
 - `-u`: Add user provided ccdCodes to the input JSON file. Multiple files can be provided.
   - Example: `-u userccd1.cif userccd2.cif`
 
