@@ -1,5 +1,13 @@
 import re
+import string
 from pathlib import Path
+
+
+def sanitised_name(name) -> str:
+    """Returns sanitised version of the name that can be used as a filename."""
+    lower_spaceless_name = name.lower().replace(" ", "_")
+    allowed_chars = set(string.ascii_lowercase + string.digits + "_-.")
+    return "".join(char for char in lower_spaceless_name if char in allowed_chars)
 
 
 def int_id_to_str_id(num: int) -> str:
