@@ -4,7 +4,7 @@ version = "0.0.7"
 description = "Toolkit for alphafold3 input and output files"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = ["rdkit>=2024.3.2", "gemmi>=0.7.0", "matplotlib", "pip", "loguru"]
+dependencies = ["biopython>=1.85", "rdkit>=2024.3.2", "gemmi>=0.7.0", "matplotlib", "pip", "loguru"]
 
 [tool.uv]
 dev-dependencies = ["mypy", "notebook", "pandas", "pytest", "pytest-cov", "ruff", "pyyaml", "pandas"]
@@ -42,7 +42,7 @@ known-third-party = ["fastapi", "pydantic", "starlette"]
 filterwarnings = [
     "ignore:.*Jupyter is migrating.*:DeprecationWarning",
 ]
-addopts = "-vv --color=yes --cov=alphafold3tools --cov-report=term-missing --capture=no"
+addopts = "-vv --color=yes --capture=no"
 
 [build-system]
 requires = ["hatchling"]
