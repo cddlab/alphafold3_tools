@@ -1,4 +1,3 @@
-import json
 import textwrap
 from dataclasses import dataclass
 
@@ -45,29 +44,16 @@ def test_writeheader():
 
 def test_write_pairedmsasection_valid():
     # Define two valid MSA strings with matching headers.
-    msa1 = ">seq1\nACGT\n>seq2\nTGCA"
-    msa2 = ">seq1\nGGGG\n>seq2\nCCCC"
+    msa1 = ">seq1\nAKQPT\n>seq2\nAK-PT\n>seq3\nTGCakKS"
+    msa2 = ">seq4\nGCKS\n>seq5\nGCRS"
+    query_seqs = ["AKQPT", "GCKS"]
     pairedmsas = [msa1, msa2]
 
     # Expected concatenated result:
-    # For seq1: header ">seq1", sequence "ACGTGGGG"
-    # For seq2: header ">seq2", sequence "TGCACCCC"
-    expected_output = ">seq1\nACGTGGGG\n>seq2\nTGCACCCC\n"
+    expected_output = ">101\t102\nAKQPTGCKS\n>seq1\tseq4\nAKQPTGCKS\n>seq2\tseq5\nAK-PTGCRS\n>seq3\tdummy\nTGCakKS----\n"
 
-    result = write_pairedmsasection(pairedmsas)
+    result = write_pairedmsasection(query_seqs, pairedmsas)
     assert result == expected_output
-
-
-def test_write_pairedmsasection_mismatch():
-    # Define two MSA strings with mismatched number of headers.
-    msa1 = ">seq1\nACGT\n>seq2\nTGCA"
-    msa2 = ">seq1\nGGGG"
-    pairedmsas = [msa1, msa2]
-
-    with pytest.raises(
-        AssertionError, match="The number of sequences in each MSA does not match."
-    ):
-        write_pairedmsasection(pairedmsas)
 
 
 def test_write_unpairedmsasection():

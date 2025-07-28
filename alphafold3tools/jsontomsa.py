@@ -24,7 +24,7 @@ def get_info_from_json(
     to extract the following information for each sequence:
       - Sequence lengths (calculated from the protein sequence)
       - Stoichiometries (determined by the number of IDs in the protein data)
-      - (Query) Protein sequences
+      - Query protein sequences
       - Unpaired MSA data
       - Paired MSA data
 
@@ -36,14 +36,14 @@ def get_info_from_json(
             This tuple containing:
               - A list of sequence lengths (int).
               - A list of stoichiometries (int).
-              - A list of protein sequences (str).
+              - A list of query protein sequences (str).
               - A list of unpaired MSA information (str).
               - A list of paired MSA information (str).
     """
     logger.debug(f"Reading JSON file: {jsonfile}")
     with open(jsonfile, "r") as f:
         data = json.load(f)
-        protein_seqs = []
+        query_seqs = []
         stoichiometries = []
         unpairedmsas = []
         pairedmsas = []
@@ -53,12 +53,12 @@ def get_info_from_json(
                 continue
             else:
                 logger.debug(f"Found protein data for entity {i}.")
-                protein_seqs.append(data["sequences"][i]["protein"]["sequence"])
                 stoichiometries.append(len(data["sequences"][i]["protein"]["id"]))
+                query_seqs.append(data["sequences"][i]["protein"]["sequence"])
                 unpairedmsas.append(data["sequences"][i]["protein"]["unpairedMsa"])
                 pairedmsas.append(data["sequences"][i]["protein"]["pairedMsa"])
-        seq_lens = [len(seq) for seq in protein_seqs]
-    return seq_lens, stoichiometries, protein_seqs, unpairedmsas, pairedmsas
+        seq_lens = [len(seq) for seq in query_seqs]
+    return seq_lens, stoichiometries, query_seqs, unpairedmsas, pairedmsas
 
 
 def write_header(seq_lens: list[int], stoichiometries: list[int]) -> str:
@@ -93,7 +93,7 @@ def write_header(seq_lens: list[int], stoichiometries: list[int]) -> str:
     return header
 
 
-def write_pairedmsasection(pairedmsas: list[str]) -> str:
+def write_pairedmsasection(query_seqs: list[str], pairedmsas: list[str]) -> str:
     """
     Processes and concatenates paired MSA data.
 
@@ -107,6 +107,7 @@ def write_pairedmsasection(pairedmsas: list[str]) -> str:
     the concatenated results.
 
     Args:
+        query_seqs (list[str]): A list of query sequences.
         pairedmsas (list[str]): A list of strings, each representing MSA data.
             Each MSA string should contain header lines starting with ">" followed
             by the sequence lines.
@@ -115,34 +116,55 @@ def write_pairedmsasection(pairedmsas: list[str]) -> str:
         str: A formatted string where each concatenated sequence is represented by
              its header followed by the concatenated sequence, separated by newlines.
 
-    TODO: sanity check for uppercase characters with seq_lens?
+    E.g.:
+        query_seqs = [
+            "AKQPT",
+            "GCKS"
+        ]
+        pairedmsas = [
+            ">seq1\nAKQPT\n>seq2\nAK-PT\n>seq3\nTGCakKS",
+            ">seq4\nGCKS\n>seq5\nGCRS"
+        ]
+        The output will be:
+        ">101\t102\nAKQPTGCKS\n>seq1\tseq4\nAKQPTGCKS\n>seq2\tseq5\nAK-PTGCRS\n>seq3\nTGCakKS----\n"
     """
-    seqs = [[] for _ in range(len(pairedmsas))]
-
+    logger.debug(f"Processing paired MSA section with {len(pairedmsas)} MSAs.")
+    # header_str is like ">101\t102"
+    header_str = ">" + "\t".join(map(str, [101 + i for i in range(len(query_seqs))]))
+    query_seqs_str = "".join(query_seqs)
+    query_seqs_len = [len(seq) for seq in query_seqs]
+    msachunks = [[] for _ in range(len(pairedmsas))]
     for i in range(len(pairedmsas)):
         for line in pairedmsas[i].split("\n"):
             if line == "":
                 continue
             elif line.startswith(">"):
-                seqs[i].append(Seq(name=line, sequence=""))
+                msachunks[i].append(Seq(name=line, sequence=""))
             else:
-                seqs[i][-1].sequence = line
-    # sanity check
-    if not all(len(seq) == len(seqs[0]) for seq in seqs):
-        raise AssertionError("The number of sequences in each MSA does not match.")
-    concat_seqs = []
-    for j in range(len(seqs[0])):
-        name = seqs[0][j].name
-        concat_seq = "".join([msa[j].sequence for msa in seqs])
-        concat_seqs.append(Seq(name, concat_seq))
+                msachunks[i][-1].sequence = line
+        logger.debug(f"Number of MSA sequences in {i}-th query: {len(msachunks[i])}")
 
-    concat_seq_str = "".join(
-        [
-            f"{concat_seqs[_].name}\n{concat_seqs[_].sequence}\n"
-            for _ in range(len(concat_seqs))
-        ]
-    )
-    return concat_seq_str
+    # all MSA chunks must have the same number of sequences
+    # if not, add padding to the shorter ones
+    if not all(len(msachunks[0]) == len(msachunk) for msachunk in msachunks):
+        max_msa_chunks_len = max(len(msachunk) for msachunk in msachunks)
+        for i in range(len(msachunks)):
+            while len(msachunks[i]) < max_msa_chunks_len:
+                msachunks[i].append(Seq(name="dummy", sequence="-" * query_seqs_len[i]))
+
+    # Concatenate sequences for each entry
+    concat_msas = []
+    for j in range(len(msachunks[0])):
+        names = [msachunks[i][j].name for i in range(len(msachunks))]
+        sequences = [msachunks[i][j].sequence for i in range(len(msachunks))]
+        name_str = ">" + "\t".join([n.lstrip(">") for n in names])
+        sequence_str = "".join(sequences)
+        concat_msas.append(Seq(name=name_str, sequence=sequence_str))
+    # Build output string
+    output = f"{header_str}\n{query_seqs_str}\n"
+    for seq in concat_msas:
+        output += f"{seq.name}\n{seq.sequence}\n"
+    return output
 
 
 def write_unpairedmsasection(seq_lens: list[int], unpairedmsas: list[str]) -> str:
@@ -178,16 +200,20 @@ def write_unpairedmsasection(seq_lens: list[int], unpairedmsas: list[str]) -> st
 def write_a3m_file(
     outfile: str,
     seq_lens: list[int],
+    query_seqs: list[str],
     stoichiometries: list[int],
     unpairedmsas: list[str],
     pairedmsas: list[str],
+    output_paired: bool = True,
 ):
     """
     Writes the MSA data to an output file."
     """
     with open(outfile, "w") as f:
         f.write(write_header(seq_lens, stoichiometries))
-        f.write(write_pairedmsasection(pairedmsas))
+        logger.debug(f"State: output_paired={output_paired}")
+        if output_paired:
+            f.write(write_pairedmsasection(query_seqs, pairedmsas))
         f.write(write_unpairedmsasection(seq_lens, unpairedmsas))
 
 
@@ -205,6 +231,14 @@ def main():
     )
     parser.add_argument("-o", "--out", help="Output a3m file.", type=str, required=True)
     parser.add_argument(
+        "-p",
+        "--nopaired",
+        help="Do not output paired MSA section.",
+        action="store_false",
+        dest="output_paired",
+        default=True,
+    )
+    parser.add_argument(
         "-d",
         "--debug",
         help="Print lots of debugging statements",
@@ -215,10 +249,18 @@ def main():
     )
     args = parser.parse_args()
     log_setup(args.loglevel)
-    seq_lens, stoichiometries, protein_seqs, unpairedmsas, pairedmsas = (
+    seq_lens, stoichiometries, query_seqs, unpairedmsas, pairedmsas = (
         get_info_from_json(args.input)
     )
-    write_a3m_file(args.out, seq_lens, stoichiometries, unpairedmsas, pairedmsas)
+    write_a3m_file(
+        args.out,
+        seq_lens,
+        query_seqs,
+        stoichiometries,
+        unpairedmsas,
+        pairedmsas,
+        args.output_paired,
+    )
     logger.debug(f"Successfully wrote MSA data to {args.out}")
 
 
