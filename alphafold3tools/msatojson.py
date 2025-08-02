@@ -17,7 +17,7 @@ class Seq:
     sequence: str
 
 
-def get_residuelens_stoichiometries(lines) -> tuple[list[int], list[int]]:
+def get_residuelens_stoichiometries(lines: list[str]) -> tuple[list[int], list[int]]:
     """Get residue lengths and stoichiometries from msa file.
     Args:
         lines: list[str]

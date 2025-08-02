@@ -32,7 +32,7 @@ def get_ccd_cif_chiral_type(atom):
     return "N"
 
 
-def get_atom_name(atom):
+def get_atom_name(atom: rdkit.Chem.rdchem.Atom) -> str:
     """Gets atom name. If not set ElementSymbol + Id is used.
 
     Args:
@@ -80,7 +80,7 @@ def get_ccd_cif_bond_type(bond):
     return "SING"
 
 
-def get_ccd_cif_bond_stereo(bond):
+def get_ccd_cif_bond_stereo(bond: rdkit.Chem.rdchem.Bond) -> str:
     """Get bond stereochemistry information to be used in CCD CIF file.
     Controlled dictionary from: http://mmcif.wwpdb.org/dictionaries/mmcif_pdbx_v50.dic/Items/_chem_comp_bond.pdbx_stereo_config.html
 
