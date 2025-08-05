@@ -10,7 +10,7 @@ from alphafold3tools.modjson import (
     add_userccd,
     fix_sequence_ids,
     modify_name,
-    purge_ligands,
+    purge_ligand,
     read_json_data,
     remove_ccdcodes,
     write_json_data,
@@ -182,7 +182,7 @@ def test_purge_ligands():
             {"ligand": {"id": ["E", "F"], "smiles": "CCO"}},
         ],
     }
-    purged_data = purge_ligands(data)
+    purged_data = purge_ligand(data)
     expected_data = {
         "dialect": "alphafold3",
         "version": 1,
