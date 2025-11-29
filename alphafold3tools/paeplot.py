@@ -13,6 +13,11 @@ from alphafold3tools.log import log_setup
 from alphafold3tools.utils import get_seednumbers
 
 matplotlib.use("Agg")
+rcParams["font.family"] = "Arial"
+rcParams["mathtext.fontset"] = "cm"
+rcParams["font.size"] = 12
+rcParams["lines.linewidth"] = 0.4
+rcParams["svg.fonttype"] = "none"
 
 
 def get_chain_ids_and_lengths(token_chain_ids: list[str]) -> dict:
@@ -77,20 +82,25 @@ def map_with_colorbar(
 
 
 def plot_all_paes(
-    dir: str | Path, out: str, title: str = "", cmap="Greens_r", dpi=300
+    dir: str | Path, out: str, title: str = "", cmap="Greens_r", dpi=300, format="png"
 ) -> None:
     """Plot all predicted alignment error (PAE) of the models
     in the seed-(\\d+)_sample-[0-4] directories.
 
     Args:
         dir (str | Path): Directory containing the subdirectories
+        out (str): Suffix of the output plot file. e.g. foo_pae.png
+        title (str): Title of the plot.
+        cmap (str): Colormap to use for the plot.
+        dpi (int): Dots per inch for the output plot.
+        format (str): Format of the output plot file.
     """
     seednumbers = get_seednumbers(dir)
     dir = Path(dir).resolve()
     basename = Path(dir).name
-    png_name = f"{dir}/{basename}_{out}.png"
+    output_name = f"{dir}/{basename}_{out}.{format}"
     logger.info(
-        f"The input directory is {dir}. The output plot will be saved as {png_name}."
+        f"The input directory is {dir}. The output plot will be saved as {output_name}."
     )
     bestconfidencejsonfile = Path(dir) / f"{basename}_confidences.json"
     if not bestconfidencejsonfile.exists():
@@ -151,8 +161,8 @@ def plot_all_paes(
                     label="Expected Position Error (Ångströms)",
                 )
     plt.tight_layout()
-    png_name = f"{dir}/{basename}_{out}.png"
-    plt.savefig(png_name, dpi=dpi)
+    output_name = f"{dir}/{basename}_{out}.{format}"
+    plt.savefig(output_name, dpi=dpi, format=format)
     plt.clf()
     plt.close()
 
@@ -163,18 +173,24 @@ def plot_best_pae(
     title: str = "",
     cmap="Greens_r",
     dpi=300,
+    format="png",
 ) -> None:
     """Plot only the best predicted alignment error (PAE).
     The plot will be generated from f"{dir}/*_confidence.json".
 
     Args:
-        dir (str | Path): Directory containing the subdirectories
+        dir (str | Path): Directory containing the subdirectories.
+        out (str): Suffix of the output plot file. e.g. foo_pae.png
+        title (str): Title of the plot.
+        cmap (str): Colormap to use for the plot.
+        dpi (int): Dots per inch for the output plot.
+        format (str): Output format ('png' or 'svg') of the plot file.
     """
     dir = Path(dir).resolve()
     basename = Path(dir).name
-    png_name = f"{dir}/{basename}_{out}.png"
+    output_name = f"{dir}/{basename}_{out}.{format}"
     logger.info(
-        f"The input directory is {dir}. The output plot will be saved as {png_name}."
+        f"The input directory is {dir}. The output plot will be saved as {output_name}."
     )
     jsonfile = Path(dir) / f"{basename}_confidences.json"
     if not jsonfile.exists():
@@ -200,7 +216,7 @@ def plot_best_pae(
         label="Expected Position Error (Ångströms)",
     )
     plt.tight_layout()
-    plt.savefig(png_name, dpi=dpi)
+    plt.savefig(output_name, dpi=dpi, format=format)
     plt.clf()
     plt.close()
 
@@ -211,6 +227,7 @@ def plot_pae_from_json(
     title: str = "",
     cmap="Greens_r",
     dpi=300,
+    format="png",
 ) -> None:
     """Plot the predicted alignment error (PAE) from a given JSON file.
     This function is for a JSON file.
@@ -220,6 +237,11 @@ def plot_pae_from_json(
 
     Args:
         jsonfile (str | Path): Path to the json file.
+        out (str): Suffix of the output plot file. e.g. foo_pae.png
+        title (str): Title of the plot.
+        cmap (str): Colormap to use for the plot.
+        dpi (int): Dots per inch for the output plot.
+        format (str): Output format ('png' or 'svg') of the plot file.
     """
     jsonfile = Path(jsonfile).resolve()
     if not jsonfile.exists():
@@ -262,8 +284,8 @@ def plot_pae_from_json(
         label="Expected Position Error (Ångströms)",
     )
     plt.tight_layout()
-    png_name = f"{jsonfile.parent}/{jsonfile.stem}_{out}.png"
-    plt.savefig(png_name, dpi=dpi)
+    output_name = f"{jsonfile.parent}/{jsonfile.stem}_{out}.{format}"
+    plt.savefig(output_name, dpi=dpi, format=format)
     plt.clf()
     plt.close()
 
@@ -320,6 +342,14 @@ def main():
         type=int,
     )
     parser.add_argument(
+        "-f",
+        "--format",
+        help="Output format for the plot. Default is 'png'.",
+        choices=["png", "svg"],
+        default="png",
+        type=str,
+    )
+    parser.add_argument(
         "-d",
         "--debug",
         help="Print lots of debugging statements",
@@ -339,6 +369,7 @@ def main():
                 title=args.title,
                 cmap=args.cmap,
                 dpi=args.dpi,
+                format=args.format,
             )
         else:
             plot_best_pae(
@@ -347,6 +378,7 @@ def main():
                 title=args.title,
                 cmap=args.cmap,
                 dpi=args.dpi,
+                format=args.format,
             )
     elif Path(args.input).is_file():
         logger.info(f"The input file is {args.input}.")
@@ -356,6 +388,7 @@ def main():
             title=args.title,
             cmap=args.cmap,
             dpi=args.dpi,
+            format=args.format,
         )
 
 
