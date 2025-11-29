@@ -108,7 +108,7 @@ You will obtain three JSON files, `p12345.json`, `q67890.json`, and `i23l45_i3pl
 `paeplot` is a command to plot the predicted aligned error (PAE). The color map can be specified with the `-c` option. The default color map is `bwr` (ColabFold-like), but `Greens_r` is also available for AlphaFold Structure Database (AFDB)-like coloring.
 
 ```bash
-paeplot -i /path/to/alphafold3_output/directory -c Greens_r --dpi 300 [-n foo] [-a]
+paeplot -i /path/to/alphafold3_output/directory [-c {Greens_r,bwr}] [--dpi 300] [-n foo] [-a] [-t "PAE Plot"] [--chain-cmap {pymol,unhcr,<matplotlib_colormap_name>}]
 ```
 
 ![greensr](./images/greensr.png)
