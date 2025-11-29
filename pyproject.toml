@@ -6,8 +6,6 @@ readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["biopython>=1.85", "rdkit>=2024.3.2", "gemmi>=0.7.0", "matplotlib", "pip", "loguru"]
 
-[tool.uv]
-dev-dependencies = ["mypy", "notebook", "pandas", "pytest", "pytest-cov", "ruff", "pyyaml", "pandas"]
 
 [tool.ruff]
 indent-width = 4
@@ -47,6 +45,16 @@ addopts = "-vv --color=yes --capture=no"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "mypy>=1.13.0",
+    "notebook>=7.2.2",
+    "pandas>=2.2.3",
+    "pytest>=8.3.3",
+    "pyyaml>=6.0.2",
+    "ruff>=0.8.2",
+]
 
 [tool.hatch.metadata]
 dynamic = ["name", "version"]
