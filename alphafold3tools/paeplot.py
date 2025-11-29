@@ -79,7 +79,7 @@ def map_with_colorbar(
         mappable (plt.cm.ScalarMappable): ScalarMappable object
         ax: Axes object
     """
-    ax.set_title(model_name)
+    ax.set_title(model_name, pad=22)
     ax.set_xlabel("Scored Residue")
     ax.set_ylabel("Aligned Residue")
     mappable: plt.cm.ScalarMappable = ax.imshow(
