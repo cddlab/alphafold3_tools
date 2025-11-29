@@ -414,7 +414,7 @@ def main():
         help="Colormap for the plot. "
         "Currently only 'bwr' and 'Greens_r' are supported.",
         choices=["bwr", "Greens_r"],
-        default="Greens_r",
+        default="bwr",
         type=str,
     )
     parser.add_argument(
