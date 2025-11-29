@@ -205,7 +205,7 @@ def plot_best_pae(
     map_with_colorbar(
         fig,
         ax,
-        "Best",
+        "",
         data,
         chain_ids_and_lengths,
         cmap=cmap,
