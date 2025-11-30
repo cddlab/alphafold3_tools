@@ -108,11 +108,22 @@ You will obtain three JSON files, `p12345.json`, `q67890.json`, and `i23l45_i3pl
 `paeplot` is a command to plot the predicted aligned error (PAE). The color map can be specified with the `-c` option. The default color map is `bwr` (ColabFold-like), but `Greens_r` is also available for AlphaFold Structure Database (AFDB)-like coloring.
 
 ```bash
-paeplot -i /path/to/alphafold3_output/directory [-c {Greens_r,bwr}] [--dpi 300] [-n foo] [-a] [-t "PAE Plot"] [--chain-cmap {pymol,unhcr,<matplotlib_colormap_name>}]
+paeplot -i /path/to/alphafold3_output/directory [-c {Greens_r,bwr}] [--dpi 300] [-n foo] [-f {png,svg}] [-a] [-t "PAE Plot"] [--chain-cmap {pymol,unhcr,<matplotlib_colormap_name>}]
 ```
 
 ![greensr](./images/greensr.png)
 ![bwr](./images/bwr.png)
+
+arguments:
+
+- `-i`: Input directory containing the AlphaFold3 output files. Mandatory.
+- `-c`: Color map for the PAE plot. Optional. Default is `bwr`. Choose either `Greens_r` or `bwr`.
+- `--dpi`: DPI of the output image. Optional. Default is `100`, but `300` is recommended for publication-quality images.
+- `-n`: Name prefix for the output image file. Optional.
+- `-f`: Output image file format. Optional. Choose either `png` or `svg`. Default is `png`.
+- `-a`: If specified, the plot will include all models in the output directory.
+- `-t`: Title of the plot. Optional.
+- `--chain-cmap`: Color map for chain coloring on top and right. Optional. Choose either `pymol`, `unhcr`, or any valid matplotlib colormap name. (e.g. `tab20`) Default is `pymol`.
 
 ### superpose_ciffiles
 
@@ -123,7 +134,7 @@ paeplot -i /path/to/alphafold3_output/directory [-c {Greens_r,bwr}] [--dpi 300] 
 superpose_ciffiles -i /path/to/alphafold3_output/directory [-o /path/to/output/directory/foo_superposed.cif] [-c A]
 ```
 
-<img src="./images/superposed.png" width="600px" alt="superposed">
+![superposed_pymol](./images/superposed_pymol.png)
 
 In [PyMOL](https://www.pymol.org/), the following command will be useful to visualize the plDDT values.
 
@@ -135,7 +146,7 @@ color 0xFF7D45, b < 50
 util.cnc
 ```
 
-<img src="./images/plddt.png" width="600px" alt="plddt">
+![plddt](./images/superposed_pymol_plddt.png)
 
 > [!NOTE]
 > To visualize only an object of `seed-1_sample-0` with plddt values, type the following command in PyMOL.
