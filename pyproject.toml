@@ -1,6 +1,6 @@
 [project]
 name = "alphafold3_tools"
-version = "0.0.9"
+version = "0.1.0"
 description = "Toolkit for alphafold3 input and output files"
 readme = "README.md"
 requires-python = ">=3.10"
