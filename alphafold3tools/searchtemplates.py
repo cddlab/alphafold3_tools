@@ -3,14 +3,15 @@
 import dataclasses
 import datetime
 import functools
+import json
 import os
 import re
 import shutil
 import subprocess
 import tempfile
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from pathlib import Path
-from typing import IO, Any, Final
+from typing import IO, Any, Final, Self, TypeAlias, cast
 
 import gemmi
 import numpy as np
@@ -26,6 +27,10 @@ from alphafold3tools.msa_conversion import (
 )
 
 PROTEIN_CHAIN: Final[str] = "polypeptide(L)"
+TemplateFeatures: TypeAlias = Mapping[
+    str, np.ndarray | bytes | Mapping[str, np.ndarray | bytes]
+]
+NestedInts: TypeAlias = int | Sequence["NestedInts"]
 
 
 class AlignmentError(Exception):
@@ -263,7 +268,7 @@ def convert_stockholm_to_a3m(
     fasta_chunks = []
 
     for seqname, seq in a3m_sequences.items():
-        fasta_chunks.append(f'>{seqname} {descriptions.get(seqname, "")}')
+        fasta_chunks.append(f">{seqname} {descriptions.get(seqname, '')}")
 
         if linewidth:
             fasta_chunks.extend(
@@ -309,7 +314,7 @@ def convert_a3m_to_stockholm(a3m: str, max_seqs: int | None = None) -> str:
 
     # Add the reference annotation for the query (the first sequence).
     ref_annotation = "".join("." if c == "-" else "x" for c in sequences[0])
-    stockholm.append(f'{"#=GC RF":<{max_name_width}s} {ref_annotation}')
+    stockholm.append(f"{'#=GC RF':<{max_name_width}s} {ref_annotation}")
     stockholm.append("//")
 
     return "\n".join(stockholm)
@@ -584,19 +589,25 @@ def _filter_hits(
     return filtered_hits
 
 
-def _polymer_auth_asym_id_to_label_asym_id_with_gemmi(
-    model: gemmi.Model,
+def polymer_auth_asym_id_to_label_asym_id_with_gemmi(
+    struc: gemmi.Structure,
 ) -> Mapping[str, str]:
     """
-    Docstring for polymer_auth_asym_id_to_label_asym_id_with_gemmi
+    Mapping from author chain ID to internal chain ID, polymers only.
 
-    :param model: Description
-    :type model: gemmi.Model
-    :return: Description
-    :rtype: dict[str, str]
+    Args:
+      struc: A gemmi Structure object.
+
+    Returns:
+      A mapping from author chain ID to the internal (label) chain ID for the
+      given polymer types in the Structure, ligands/water are ignored.
+
+    Raises:
+      ValueError: If the mapping from internal chain IDs to author chain IDs is
+        not a bijection for polymer chains.
     """
     auth_asym_id_to_label_asym_id = {}
-    for chain in model:
+    for chain in struc[0]:
         polymer = chain.get_polymer()
         if polymer is None:
             continue
@@ -617,7 +628,7 @@ def _parse_hit_metadata_with_gemmi(
     structure_store: structure_stores.StructureStore,
     pdb_id: str,
     auth_chain_id: str,
-) -> tuple[Any, str | None, Sequence[int] | None]:
+) -> tuple[Any, str | None, list[int] | None]:
     """Parse hit metadata by parsing mmCIF from structure store."""
     try:
         doc = gemmi.cif.read_string(structure_store.get_mmcif_str(pdb_id))
@@ -648,10 +659,10 @@ def _parse_hit_metadata_with_gemmi(
     label_asym_residues = model[auth_chain_id].get_polymer()
     all_res_ids = np.arange(1, len(sequence) + 1)
     resolved_res_ids = np.array([res.label_seq for res in label_asym_residues])
-    unresolved_res_ids = (
-        np.isin(all_res_ids, resolved_res_ids, invert=True).nonzero()[0] + 1
-    ).tolist()
-    return release_date, sequence, unresolved_res_ids
+    unresolved_res_ids = cast(
+        list[int], np.isin(all_res_ids, resolved_res_ids, invert=True).nonzero()[0] + 1
+    )
+    return (release_date, sequence, unresolved_res_ids)
 
 
 def _download_mmcif_file_for_pdbid(
@@ -934,6 +945,235 @@ class Templates:
             structure_store=self._structure_store,
         )
 
+    def get_hits_with_structures(
+        self,
+    ) -> Sequence[tuple[Hit, gemmi.Structure]]:
+        """Returns hits + Structures, Structures filtered to the hit's chain."""
+        results = []
+        structures = {struc.name.lower(): struc for struc in self.structures}
+        for hit in self.hits:
+            if not hit.is_valid:
+                raise InvalidTemplateError(
+                    "Hits must be filtered before calling get_hits_with_structures."
+                )
+            struc = structures[hit.pdb_id]
+            label_chain_id = polymer_auth_asym_id_to_label_asym_id_with_gemmi(struc)[
+                hit.auth_chain_id
+            ]
+            # delete all but label_chain_id chains
+            for model in struc:
+                chains_to_delete = [
+                    chain.name for chain in model if chain.name != label_chain_id
+                ]
+                for chain_id_to_be_deleted in chains_to_delete:
+                    model.remove_chain(chain_id_to_be_deleted)
+            results.append((hit, struc))
+
+        return results
+
+    @property
+    def structures(self) -> Iterator[gemmi.Structure]:
+        """Yields template structures for each unique PDB ID among hits.
+
+        If there are multiple hits in the same Structure, the Structure will be
+        included only once by this method.
+
+        Yields:
+        A Structure object for each unique PDB ID among hits.
+
+        Raises:
+        HitDateError: If template's release date exceeds max cutoff date.
+        """
+
+        for hit in self.hits:
+            if hit.release_date > self.release_date_cutoff:  # pylint: disable=comparison-with-callable
+                raise HitDateError(
+                    f"Invalid release date for hit {hit.pdb_id=}, when release date "
+                    f"cutoff is {self.release_date_cutoff}."
+                )
+
+        # Get the set of pdbs to load. In particular, remove duplicate PDB IDs.
+        targets_to_load = tuple({hit.pdb_id for hit in self.hits})
+
+        for target_name in targets_to_load:
+            yield self.clean_mmcif_structures(target_name)
+
+    def clean_mmcif_structures(self, target_name: str) -> gemmi.Structure:
+        """Loads and cleans a mmCIF structure from RCSB PDB.
+
+        Args:
+        target_name: The PDB ID of the structure to load.
+        Returns:
+        A cleaned gemmi Structure object.
+        """
+        try:
+            struc = gemmi.read_structure_string(
+                self._structure_store.get_mmcif_str(target_name)
+            )
+        except structure_stores.NotFoundError:
+            logger.warning("Failed to load mmCIF for %s.", target_name)
+
+        # Convert MSE to MET.
+        for chain in struc[0]:
+            for residue in chain:
+                if residue.name == "MSE":
+                    residue.name = "MET"
+                    for atom in residue:
+                        if atom.name == "SE":
+                            atom.name = "SD"
+                            atom.element = gemmi.Element("S")
+        struc.remove_ligands_and_waters()
+        # re-assign all het_flag values to "ATOM"
+        struc.assign_het_flags()
+        return struc
+
+
+class Template:
+    """Structural template input."""
+
+    __slots__ = ("_mmcif", "_query_to_template")
+
+    def __init__(self, *, mmcif: str, query_to_template_map: Mapping[int, int]):
+        """Initializes the template.
+
+        Args:
+          mmcif: The structural template in mmCIF format. The mmCIF should have only
+            one protein chain.
+          query_to_template_map: A mapping from query residue index to template
+            residue index.
+        """
+        self._mmcif = mmcif
+        # Needed to make the Template class hashable.
+        self._query_to_template = tuple(query_to_template_map.items())
+
+    @property
+    def query_to_template_map(self) -> Mapping[int, int]:
+        return dict(self._query_to_template)
+
+    @property
+    def mmcif(self) -> str:
+        return self._mmcif
+
+    def __hash__(self) -> int:
+        return hash((self._mmcif, tuple(sorted(self._query_to_template))))
+
+    def __eq__(self, other: Self) -> bool:
+        mmcifs_equal = self._mmcif == other._mmcif
+        maps_equal = sorted(self._query_to_template) == sorted(other._query_to_template)
+        return mmcifs_equal and maps_equal
+
+
+class ProteinChain:
+    """Protein chain input."""
+
+    __slots__ = (
+        "_id",
+        "_sequence",
+        "_ptms",
+        "_description",
+        "_paired_msa",
+        "_unpaired_msa",
+        "_templates",
+    )
+
+    def __init__(
+        self,
+        *,
+        id: str,  # pylint: disable=redefined-builtin
+        sequence: str,
+        ptms: Sequence[tuple[str, int]],
+        description: str | None = None,
+        paired_msa: str | None = None,
+        unpaired_msa: str | None = None,
+        templates: Sequence[Template] | None = None,
+    ):
+        """Initializes a single protein chain input.
+
+        Args:
+          id: Unique protein chain identifier.
+          sequence: The amino acid sequence of the chain.
+          ptms: A list of tuples containing the post-translational modification type
+            and the (1-based) residue index where the modification is applied.
+          description: An optional textual description of the protein chain.
+          paired_msa: Paired A3M-formatted MSA for this chain. This MSA is not
+            deduplicated and will be used to compute paired features. If None, this
+            field is unset and must be filled in by the data pipeline before
+            featurisation. If set to an empty string, it will be treated as a custom
+            MSA with no sequences.
+          unpaired_msa: Unpaired A3M-formatted MSA for this chain. This will be
+            deduplicated and used to compute unpaired features. If None, this field
+            is unset and must be filled in by the data pipeline before
+            featurisation. If set to an empty string, it will be treated as a custom
+            MSA with no sequences.
+          templates: A list of structural templates for this chain. If None, this
+            field is unset and must be filled in by the data pipeline before
+            featurisation. The list can be empty or contain up to 20 templates.
+        """
+        if not all(res.isalpha() for res in sequence):
+            raise ValueError(f'Protein must contain only letters, got "{sequence}"')
+        if any(not 0 < mod[1] <= len(sequence) for mod in ptms):
+            raise ValueError(f"Invalid protein modification index: {ptms}")
+        if any(mod[0].startswith("CCD_") for mod in ptms):
+            raise ValueError(
+                f'Protein ptms must not contain the "CCD_" prefix, got {ptms}'
+            )
+        # Use hashable containers for ptms and templates.
+        self._id = id
+        self._sequence = sequence
+        self._ptms = tuple(ptms)
+        self._description = description
+        self._paired_msa = paired_msa
+        self._unpaired_msa = unpaired_msa
+        self._templates = tuple(templates) if templates is not None else None
+
+    @property
+    def id(self) -> str:
+        return self._id
+
+    @property
+    def templates(self) -> Sequence[Template] | None:
+        return self._templates
+
+    def __len__(self) -> int:
+        return len(self._sequence)
+
+    def __eq__(self, other: Self) -> bool:
+        return (
+            self._id == other._id
+            and self._sequence == other._sequence
+            and self._ptms == other._ptms
+            and self._description == other._description
+            and self._paired_msa == other._paired_msa
+            and self._unpaired_msa == other._unpaired_msa
+            and self._templates == other._templates
+        )
+
+    def __hash__(self) -> int:
+        return hash(
+            (
+                self._id,
+                self._sequence,
+                self._ptms,
+                self._description,
+                self._paired_msa,
+                self._unpaired_msa,
+                self._templates,
+            )
+        )
+
+    def hash_without_id(self) -> int:
+        """Returns a hash ignoring the ID - useful for deduplication."""
+        return hash(
+            (
+                self._sequence,
+                self._ptms,
+                self._description,
+                self._paired_msa,
+                self._unpaired_msa,
+                self._templates,
+            )
+        )
+
 
 def run_hmmsearch_with_a3m(
     *,
@@ -1030,7 +1270,7 @@ hmmsearch_path = shutil.which("hmmsearch")
 if hmmbuild_path is None or hmmsearch_path is None:
     raise ValueError("hmmbuild or hmmsearch not found in PATH")
 
-protein_templates = Templates.from_seq_and_a3m(
+template_hits = Templates.from_seq_and_a3m(
     query_sequence=query_sequence,
     msa_a3m=open(a3mfile, "r").read(),
     max_template_date=datetime.date(2099, 12, 31),
@@ -1039,17 +1279,52 @@ protein_templates = Templates.from_seq_and_a3m(
     structure_store=structure_stores.StructureStore(mmcif_dir),
     chain_poly_type=PROTEIN_CHAIN,
 )
-print(protein_templates)
+
 # %%
-for hit in protein_templates.hits:
-    print(f"Hit: {hit.full_name}")
-    print(f" Release date: {hit.release_date}")
-    print(f" Length ratio: {hit.length_ratio:.3f}")
-    print(f" Align ratio: {hit.align_ratio:.3f}")
-    print(f" Is valid: {hit.is_valid}")
-    print(f" HMMsearch sequence: {hit.hmmsearch_sequence}")
-    print(f" Structure sequence: {hit.structure_sequence}")
-    print(f" Output template sequence: {hit.output_templates_sequence}")
-    print(f" Query to hit mapping: {hit.query_to_hit_mapping}")
+options = gemmi.cif.WriteOptions()
+options.misuse_hash = True
+templates = [
+    Template(
+        mmcif=struc.make_mmcif_document().as_string(options),
+        query_to_template_map=hit.query_to_hit_mapping,
+    )
+    for hit, struc in template_hits.get_hits_with_structures()
+]
+
+
+# for hit in template_hits.hits:
+#     print(f"Hit: {hit.full_name}")
+#     print(f" Release date: {hit.release_date}")
+#     print(f" Length ratio: {hit.length_ratio:.3f}")
+#     print(f" Align ratio: {hit.align_ratio:.3f}")
+#     print(f" Is valid: {hit.is_valid}")
+#     print(f" HMMsearch sequence: {hit.hmmsearch_sequence}")
+#     print(f" Structure sequence: {hit.structure_sequence}")
+#     print(f" Output template sequence: {hit.output_templates_sequence}")
+#     print(f" Query to hit mapping: {hit.query_to_hit_mapping}")
+#     print(f"
+# %%
+def write_templates_to_json(
+    templates: Sequence[Template], output_json_path: str
+) -> None:
+    """Writes templates to a JSON file."""
+    templates_list = []
+    for template in templates:
+        templates_list.append(
+            {
+                "mmcif": template.mmcif,
+                "queryIndices": list(template.query_to_template_map.keys()),
+                "templateIndices": list(template.query_to_template_map.values()),
+            }
+        )
+    # "templates": templates_list
+    templates_dict = {"templates": templates_list}
+
+    with open(output_json_path, "w") as f:
+        json.dump(templates_dict, f, indent=2)
+
+
+output_json_path = "/Users/YoshitakaM/Desktop/templates.json"
+write_templates_to_json(templates, output_json_path)
 
 # %%
