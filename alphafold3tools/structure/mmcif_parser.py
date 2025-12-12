@@ -1,10 +1,8 @@
-# %%
-from pathlib import Path
-
 import gemmi
 import pandas as pd
 from loguru import logger
 
+import alphafold3tools.structure.mmcif_utils as mmcif_utils
 import alphafold3tools.structure_stores as structure_stores
 
 
@@ -239,6 +237,12 @@ def ciffilecontent(
         "id": target_struct_asym["id"].values[0],
     }
     # _atom_site
+    # Use gemmi.Structure to modify arginine residues if needed
+    if fix_arginines:
+        gemmi_structure = gemmi.make_structure_from_block(block)
+        mmcif_utils.fix_arginine_residues(gemmi_structure)
+        # Update block after fixing arginines
+        block = gemmi_structure.make_mmcif_block()
     df_atom_site = _get_mmcif_category_as_df(block, "_atom_site")
     target_atom_site_df = _filter_df_by_column(
         df_atom_site, "label_asym_id", target_chain
@@ -309,7 +313,7 @@ options = gemmi.cif.WriteOptions()
 options.misuse_hash = True
 options.align_loops = 20
 options.prefer_pairs = True
-pdbid = "3NPG"
+pdbid = "6W81"
 target_chain = "A"
 mmcif_dir = "/Users/YoshitakaM/Desktop/mmcif_files"
 structure_store = structure_stores.StructureStore(mmcif_dir)
