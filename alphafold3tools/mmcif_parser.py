@@ -26,7 +26,7 @@ def _get_entity_id_for_chain(df_entity_polys, target_chain: str) -> str:
     return matching_rows.iloc[0]["entity_id"]
 
 
-def _get_mmcif_category_as_dataframe(
+def _get_mmcif_category_as_df(
     block: gemmi.cif.Block, category_name: str
 ) -> pd.DataFrame:
     """Get mmCIF category as pandas DataFrame.
@@ -125,8 +125,8 @@ def ciffilecontent(
     chem_comps = block.get_mmcif_category("_chem_comp")
     sorted_chem_comps = _sort_dict_by_keys(chem_comps)
     # _entity
-    df_entities = _get_mmcif_category_as_dataframe(block, "_entity")
-    df_entity_polys = _get_mmcif_category_as_dataframe(block, "_entity_poly")
+    df_entities = _get_mmcif_category_as_df(block, "_entity")
+    df_entity_polys = _get_mmcif_category_as_df(block, "_entity_poly")
     target_entity_id = _get_entity_id_for_chain(df_entity_polys, target_chain)
     target_entity = _filter_df_by_column(df_entities, "id", target_entity_id)
     entity_dict = {
@@ -141,7 +141,7 @@ def ciffilecontent(
         "type": target_poly["type"].values[0],
     }
 
-    df_entity_poly_seqs = _get_mmcif_category_as_dataframe(block, "_entity_poly_seq")
+    df_entity_poly_seqs = _get_mmcif_category_as_df(block, "_entity_poly_seq")
     target_poly_seqs = _filter_df_by_column(
         df_entity_poly_seqs, "entity_id", target_entity_id
     )
@@ -158,7 +158,7 @@ def ciffilecontent(
     # _exptl.method
     exptl_method = block.find_value("_exptl.method")
     # _pdbx_audit_revision_history.revision_date: only the first row
-    df_revision_histories = _get_mmcif_category_as_dataframe(
+    df_revision_histories = _get_mmcif_category_as_df(
         block, "_pdbx_audit_revision_history"
     )
     first_revision = df_revision_histories.iloc[0]
@@ -169,9 +169,7 @@ def ciffilecontent(
     )
 
     # _pdbx_poly_seq_scheme loop
-    df_pdbx_poly_seq_scheme = _get_mmcif_category_as_dataframe(
-        block, "_pdbx_poly_seq_scheme"
-    )
+    df_pdbx_poly_seq_scheme = _get_mmcif_category_as_df(block, "_pdbx_poly_seq_scheme")
     # filter by target_entity_id and target_chain
     target_pdbx_poly_seq_scheme = _filter_df_by_columns(
         df_pdbx_poly_seq_scheme,
@@ -195,9 +193,7 @@ def ciffilecontent(
         "seq_id": target_pdbx_poly_seq_scheme["seq_id"].to_list(),
     }
     # _pdbx_struct_assembly
-    df_pdbx_struct_assembly = _get_mmcif_category_as_dataframe(
-        block, "_pdbx_struct_assembly"
-    )
+    df_pdbx_struct_assembly = _get_mmcif_category_as_df(block, "_pdbx_struct_assembly")
     target_pdbx_struct_assembly = _filter_df_by_column(
         df_pdbx_struct_assembly, "id", "1"
     )
@@ -211,7 +207,7 @@ def ciffilecontent(
         ],
     }
     # _pdbx_struct_assembly_gen
-    df_pdbx_struct_assembly_gen = _get_mmcif_category_as_dataframe(
+    df_pdbx_struct_assembly_gen = _get_mmcif_category_as_df(
         block, "_pdbx_struct_assembly_gen"
     )
     target_pdbx_struct_assembly_gen = _filter_df_by_column(
@@ -231,19 +227,19 @@ def ciffilecontent(
     # _software category addition
     software_dict = {
         "classification": "other",
-        "name": "DeepMind Structure Class",
+        "name": "Gemmi and alphafold3_tools mmcif_parser",
         "pdbx_ordinal": "1",
         "version": "2.0.0",
     }
     # _struct_asym
-    df_struct_asym = _get_mmcif_category_as_dataframe(block, "_struct_asym")
+    df_struct_asym = _get_mmcif_category_as_df(block, "_struct_asym")
     target_struct_asym = _filter_df_by_column(df_struct_asym, "id", target_chain)
     struct_asym_dict = {
         "entity_id": target_struct_asym["entity_id"].values[0],
         "id": target_struct_asym["id"].values[0],
     }
     # _atom_site
-    df_atom_site = _get_mmcif_category_as_dataframe(block, "_atom_site")
+    df_atom_site = _get_mmcif_category_as_df(block, "_atom_site")
     target_atom_site_df = _filter_df_by_column(
         df_atom_site, "label_asym_id", target_chain
     )
