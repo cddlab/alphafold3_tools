@@ -6,7 +6,7 @@ from alphafold3tools.fastatojson import (
 
 def test_write_protein_seq_section_single():
     seq = "MKTAYIAKQRQISFVKSHFSR"
-    expected = [{"protein": {"id": "A", "sequence": "MKTAYIAKQRQISFVKSHFSR"}}]
+    expected = [{"protein": {"id": ["A"], "sequence": "MKTAYIAKQRQISFVKSHFSR"}}]
     result = _write_protein_seq_section(seq)
     assert result == expected
 
@@ -14,8 +14,8 @@ def test_write_protein_seq_section_single():
 def test_write_protein_seq_section_multiple():
     seq = "MKTAYIAKQRQISFVKSHFSR:MKTA"
     expected = [
-        {"protein": {"id": "A", "sequence": "MKTAYIAKQRQISFVKSHFSR"}},
-        {"protein": {"id": "B", "sequence": "MKTA"}},
+        {"protein": {"id": ["A"], "sequence": "MKTAYIAKQRQISFVKSHFSR"}},
+        {"protein": {"id": ["B"], "sequence": "MKTA"}},
     ]
     result = _write_protein_seq_section(seq)
     assert result == expected

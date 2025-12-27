@@ -1,6 +1,21 @@
 import re
 import string
+from argparse import ArgumentParser
 from pathlib import Path
+
+from alphafold3tools import __version__
+
+
+def add_version_option(parser: ArgumentParser) -> None:
+    """
+    Add -v/--version option to an existing ArgumentParser.
+    """
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version=f"%(prog)s {__version__}",
+    )
 
 
 def sanitised_name(name) -> str:

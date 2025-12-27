@@ -6,10 +6,9 @@ from typing import Literal, cast
 
 from loguru import logger
 
+from alphafold3tools import __version__
 from alphafold3tools.log import log_setup
-from alphafold3tools.utils import int_id_to_str_id
-
-log_setup()
+from alphafold3tools.utils import add_version_option, int_id_to_str_id
 
 
 def read_json_data(jsonpath: str) -> dict:
@@ -270,6 +269,7 @@ def main():
         formatter_class=RawTextHelpFormatter,
         description="Add or remove ligand entities from AlphaFold3 JSON file.",
     )
+    add_version_option(parser)
     parser.add_argument(
         "-i",
         "--input_json",

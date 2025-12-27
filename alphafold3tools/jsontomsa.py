@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from loguru import logger
 
 from alphafold3tools.log import log_setup
+from alphafold3tools.utils import add_version_option
 
 
 @dataclass
@@ -222,6 +223,7 @@ def main():
         formatter_class=ArgumentDefaultsHelpFormatter,
         description="Convert AlphaFold3 JSON to a3m-formatted MSA format.",
     )
+    add_version_option(parser)
     parser.add_argument(
         "-i",
         "--input",

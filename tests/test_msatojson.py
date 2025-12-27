@@ -16,7 +16,6 @@ def setup_lines():
     with open("./testfiles/testcomplexseqs.a3m", "r") as f:
         lines = f.readlines()
     yield lines
-    print("Closing file")
 
 
 class TestMSA:
@@ -68,11 +67,11 @@ class TestMSA:
             stoichiometries=stoichiometries,
             pairedmsas=pairedmsas,
             unpairedmsas=unpairedmsas,
+            includetemplates=False,
         )
-        content_dict = json.loads(content)
-        assert content_dict["dialect"] == "alphafold3"
-        assert content_dict["sequences"][0]["protein"]["id"] == ["A", "B"]
-        assert content_dict["sequences"][1]["protein"]["id"] == ["C", "D", "E"]
+        assert content["dialect"] == "alphafold3"
+        assert content["sequences"][0]["protein"]["id"] == ["A", "B"]
+        assert content["sequences"][1]["protein"]["id"] == ["C", "D", "E"]
 
 
 @pytest.fixture
@@ -80,7 +79,6 @@ def setup_homomer_lines():
     with open("./testfiles/1bjp_6.a3m", "r") as f:
         lines = f.readlines()
     yield lines
-    print("Closing file")
 
 
 class TestHomomerMSA:
@@ -107,7 +105,6 @@ def setup_noheader_a3m():
     with open("./testfiles/1bjp_no_header.a3m", "r") as f:
         lines = f.readlines()
     yield lines
-    print("Closing file")
 
 
 class TestNoHeaderMSA:
