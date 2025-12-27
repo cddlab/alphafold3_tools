@@ -6,7 +6,7 @@ from Bio import SeqIO
 from loguru import logger
 
 from alphafold3tools.log import log_setup
-from alphafold3tools.utils import int_id_to_str_id, sanitised_name
+from alphafold3tools.utils import add_version_option, int_id_to_str_id, sanitised_name
 
 
 def _write_protein_seq_section(seq: str) -> list:
@@ -68,6 +68,7 @@ def main():
         description="Convert FASTA file to JSON format compatible with AlphaFold3.",
         formatter_class=RawTextHelpFormatter,
     )
+    add_version_option(parser)
     parser.add_argument(
         "-i",
         "--input",

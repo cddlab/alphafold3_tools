@@ -6,6 +6,7 @@ import rdkit.Chem.rdMolDescriptors
 from loguru import logger
 
 from alphafold3tools.log import log_setup
+from alphafold3tools.utils import add_version_option
 
 
 def get_ccd_cif_chiral_type(atom):
@@ -277,6 +278,7 @@ def main():
         formatter_class=ArgumentDefaultsHelpFormatter,
         description="Converts a3m-format MSA file to AlphaFold3 input JSON file.",
     )
+    add_version_option(parser)
     parser.add_argument(
         "-i",
         "--input",

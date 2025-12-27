@@ -11,7 +11,7 @@ from matplotlib.colors import BoundaryNorm, ListedColormap
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 from alphafold3tools.log import log_setup
-from alphafold3tools.utils import get_seednumbers
+from alphafold3tools.utils import add_version_option, get_seednumbers
 
 matplotlib.use("Agg")
 rcParams["font.family"] = "Arial"
@@ -394,6 +394,7 @@ def main():
         "**_confidence.json files. To plot all PAEs, the input directory "
         "should contain seed-(\\d+)_sample-[0-4] directories.",
     )
+    add_version_option(parser)
     parser.add_argument(
         "-i",
         "--input",

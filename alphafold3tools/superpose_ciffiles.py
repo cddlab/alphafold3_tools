@@ -6,7 +6,7 @@ import gemmi
 from loguru import logger
 
 from alphafold3tools.log import log_setup
-from alphafold3tools.utils import get_seednumbers
+from alphafold3tools.utils import add_version_option, get_seednumbers
 
 
 def superpose_ciffiles(
@@ -97,6 +97,7 @@ def main():
         formatter_class=ArgumentDefaultsHelpFormatter,
         description="Converts a3m-format MSA file to AlphaFold3 input JSON file.",
     )
+    add_version_option(parser)
     parser.add_argument(
         "-i",
         "--input",
