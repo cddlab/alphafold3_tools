@@ -175,6 +175,7 @@ def generate_input_json_content(
     pdb_database_path: str | os.PathLike[str] | None = None,
     seqres_database_path: str | os.PathLike[str] | None = None,
     max_template_date: datetime.date = datetime.date(2099, 12, 31),
+    max_subsequence_ratio: float | None = 0.95,
     hmmbuild_binary_path: str | None = shutil.which("hmmbuild"),
     hmmsearch_binary_path: str | None = shutil.which("hmmsearch"),
 ) -> dict[str, Any]:
@@ -191,6 +192,9 @@ def generate_input_json_content(
         savehmmsto (bool): Whether to save intermediate HMM sto files.
         pdb_database_path (str): Path to the PDB mmCIF database for template search.
         max_template_date (datetime.date): Maximum template date for template search.
+        max_subsequence_ratio (float | None): Maximum ratio of the length of a template subsequence to the length of the query sequence.
+            If a template is an exact subsequence of the query sequence and its length ratio is above this threshold, it is excluded.
+            This is to avoid ground truth leakage from templates which are almost the same as the query.
         hmmbuild_binary_path (str): Path to the hmmbuild binary.
         hmmsearch_binary_path (str): Path to the hmmsearch binary.
     Returns:
@@ -216,6 +220,7 @@ def generate_input_json_content(
                 seqres_database_path=seqres_database_path,
                 savehmmsto=savehmmsto,
                 max_template_date=max_template_date,
+                max_subsequence_ratio=max_subsequence_ratio,
                 hmmbuild_binary_path=hmmbuild_binary_path,
                 hmmsearch_binary_path=hmmsearch_binary_path,
             )
@@ -254,6 +259,7 @@ def write_input_json_file(
     pdb_database_path: str | os.PathLike[str] | None = None,
     seqres_database_path: str | os.PathLike[str] | None = None,
     max_template_date: datetime.date = datetime.date(2099, 12, 31),
+    max_subsequence_ratio: float | None = 0.95,
     hmmbuild_binary_path: str | None = shutil.which("hmmbuild"),
     hmmsearch_binary_path: str | None = shutil.which("hmmsearch"),
 ) -> None:
@@ -268,6 +274,7 @@ def write_input_json_file(
         savehmmsto (bool): Whether to save intermediate HMM sto files.
         pdb_database_path (str): Path to the PDB mmCIF database for template search.
         max_template_date (datetime.date): Maximum template date for template search.
+        max_subsequence_ratio (float | None): Maximum ratio of the length of a template subsequence to the length of the query sequence.
         hmmbuild_binary_path (str): Path to the hmmbuild binary.
         hmmsearch_binary_path (str): Path to the hmmsearch binary.
     """
@@ -296,6 +303,7 @@ def write_input_json_file(
         pdb_database_path=pdb_database_path,
         seqres_database_path=seqres_database_path,
         max_template_date=max_template_date,
+        max_subsequence_ratio=max_subsequence_ratio,
         hmmbuild_binary_path=hmmbuild_binary_path,
         hmmsearch_binary_path=hmmsearch_binary_path,
     )
@@ -311,6 +319,7 @@ def _process_a3m_file(
     pdb_database_path: str | os.PathLike[str] | None,
     seqres_database_path: str | os.PathLike[str] | None,
     max_template_date: datetime.date,
+    max_subsequence_ratio: float | None,
     hmmbuild_binary_path: str | None,
     hmmsearch_binary_path: str | None,
 ) -> None:
@@ -326,6 +335,7 @@ def _process_a3m_file(
         pdb_database_path=pdb_database_path,
         seqres_database_path=seqres_database_path,
         max_template_date=max_template_date,
+        max_subsequence_ratio=max_subsequence_ratio,
         hmmbuild_binary_path=hmmbuild_binary_path,
         hmmsearch_binary_path=hmmsearch_binary_path,
     )
@@ -334,13 +344,14 @@ def _process_a3m_file(
 def process_a3m_directory(
     input_dir: Path,
     output_dir: Path,
-    includetemplates: bool = False,
-    savehmmsto: bool = False,
-    pdb_database_path: str | os.PathLike[str] | None = None,
-    seqres_database_path: str | os.PathLike[str] | None = None,
-    max_template_date: datetime.date = datetime.date(2099, 12, 31),
-    hmmbuild_binary_path: str | None = shutil.which("hmmbuild"),
-    hmmsearch_binary_path: str | None = shutil.which("hmmsearch"),
+    includetemplates: bool,
+    savehmmsto: bool,
+    pdb_database_path: str | os.PathLike[str] | None,
+    seqres_database_path: str | os.PathLike[str] | None,
+    max_template_date: datetime.date,
+    max_subsequence_ratio: float | None,
+    hmmbuild_binary_path: str | None,
+    hmmsearch_binary_path: str | None,
 ) -> None:
     """Process all A3M files in a directory.
 
@@ -366,6 +377,7 @@ def process_a3m_directory(
                 pdb_database_path,
                 seqres_database_path,
                 max_template_date,
+                max_subsequence_ratio,
                 hmmbuild_binary_path,
                 hmmsearch_binary_path,
             )
@@ -382,6 +394,7 @@ def process_single_a3m_file(
     pdb_database_path: str | os.PathLike[str] | None = None,
     seqres_database_path: str | os.PathLike[str] | None = None,
     max_template_date: datetime.date = datetime.date(2099, 12, 31),
+    max_subsequence_ratio: float | None = 0.95,
     hmmbuild_binary_path: str | None = shutil.which("hmmbuild"),
     hmmsearch_binary_path: str | None = shutil.which("hmmsearch"),
 ) -> None:
@@ -407,6 +420,7 @@ def process_single_a3m_file(
         pdb_database_path=pdb_database_path,
         seqres_database_path=seqres_database_path,
         max_template_date=max_template_date,
+        max_subsequence_ratio=max_subsequence_ratio,
         hmmbuild_binary_path=hmmbuild_binary_path,
         hmmsearch_binary_path=hmmsearch_binary_path,
     )
@@ -490,6 +504,14 @@ def main():
         default=datetime.date(2099, 12, 31),
     )
     parser.add_argument(
+        "--max_subsequence_ratio",
+        help="Maximum subsequence ratio for template search. "
+        "If set to 1.0, no templates will be excluded based on subsequence ratio. "
+        "Default is 0.95.",
+        type=float,
+        default=0.95,
+    )
+    parser.add_argument(
         "--hmmbuild_binary_path",
         help="Path to the hmmbuild binary. Default is to use the hmmbuild in PATH.",
         type=str,
@@ -511,6 +533,11 @@ def main():
     if not input_path.exists():
         raise FileNotFoundError(f"{input_path} does not exist.")
     out_path = Path(args.out)
+    if args.max_subsequence_ratio == 1.0:
+        logger.success(
+            "No templates will be excluded based on subsequence ratio since max_subsequence_ratio is set to 1.0."
+        )
+        args.max_subsequence_ratio = None
     if input_path.is_dir():
         logger.info(f"Input directory: {input_path}")
         process_a3m_directory(
@@ -521,6 +548,7 @@ def main():
             pdb_database_path=args.pdb_database_path,
             seqres_database_path=args.seqres_database_path,
             max_template_date=args.max_template_date,
+            max_subsequence_ratio=args.max_subsequence_ratio,
             hmmbuild_binary_path=args.hmmbuild_binary_path,
             hmmsearch_binary_path=args.hmmsearch_binary_path,
         )
@@ -533,6 +561,7 @@ def main():
             pdb_database_path=args.pdb_database_path,
             seqres_database_path=args.seqres_database_path,
             max_template_date=args.max_template_date,
+            max_subsequence_ratio=args.max_subsequence_ratio,
             hmmbuild_binary_path=args.hmmbuild_binary_path,
             hmmsearch_binary_path=args.hmmsearch_binary_path,
         )

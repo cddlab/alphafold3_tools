@@ -522,8 +522,12 @@ class Hit:
             aligned to the query is less than this proportion of the template
             length.
         """
+        logger.debug(f"Checking hit {self.full_name}")
         # Exclude hits which are too recent.
         if release_date_cutoff is not None and self.release_date > release_date_cutoff:
+            logger.debug(
+                f"Hit {self.full_name} is too recent. ({self.release_date} > {release_date_cutoff})"
+            )
             return False
 
         # Exclude hits which are large duplicates of the query_sequence.
@@ -532,10 +536,15 @@ class Hit:
             and self.length_ratio > max_subsequence_ratio
         ):
             if self.matching_sequence in self.query_sequence:
+                logger.debug(
+                    f"Hit {self.full_name} is rejected due to being a large subsequence of the query. "
+                    f"(length ratio {self.length_ratio:.2f} > {max_subsequence_ratio})"
+                )
                 return False
 
         # Exclude hits which are too short.
         if min_hit_length is not None and len(self.matching_sequence) < min_hit_length:
+            logger.debug(f"Hit {self.full_name} is too short.")
             return False
 
         # Exclude hits with unresolved residues.
@@ -545,6 +554,7 @@ class Hit:
         # Exclude hits with too few alignments.
         try:
             if min_align_ratio is not None and self.align_ratio <= min_align_ratio:
+                logger.debug(f"Hit {self.full_name} has too few alignments.")
                 return False
         except AlignmentError as e:
             logger.warning(f"Failed to align {self}: {str(e)}")
@@ -566,6 +576,9 @@ def _filter_hits(
     filtered_hits = []
     seen_before = set()
     for hit in hits:
+        logger.info(
+            f"Evaluating hit {hit.full_name} with release date {hit.release_date}"
+        )
         if not hit.keep(
             max_subsequence_ratio=max_subsequence_ratio,
             min_align_ratio=min_align_ratio,
@@ -580,6 +593,7 @@ def _filter_hits(
                 continue
             seen_before.add(hit.output_templates_sequence)
 
+        logger.info(f"Keeping hit {hit.full_name} with release date {hit.release_date}")
         filtered_hits.append(hit)
         if max_hits and len(filtered_hits) == max_hits:
             break
@@ -645,15 +659,19 @@ def _parse_hit_metadata_with_gemmi(
         "_entity_poly.", ["type", "pdbx_seq_one_letter_code_can", "pdbx_strand_id"]
     )
     for entity_poly in entity_polys:
-        if entity_poly["type"] != "'polypeptide(L)'":
+        if (
+            entity_poly["type"] == "'polypeptide(L)'"
+            or entity_poly["type"] == '"polypeptide(L)"'
+        ):
+            if auth_chain_id in entity_poly["pdbx_strand_id"].split(","):
+                sequence = (
+                    entity_poly["pdbx_seq_one_letter_code_can"]
+                    .replace("'", "")
+                    .replace(";", "")
+                    .replace("\n", "")
+                )
+        else:
             raise ValueError(f"Unexpected polymer type: {entity_poly['type']}")
-        if auth_chain_id in entity_poly["pdbx_strand_id"].split(","):
-            sequence = (
-                entity_poly["pdbx_seq_one_letter_code_can"]
-                .replace("'", "")
-                .replace(";", "")
-                .replace("\n", "")
-            )
     # missing residues
     label_asym_residues = model[auth_chain_id].get_polymer()
     all_res_ids = np.arange(1, len(sequence) + 1)
@@ -735,6 +753,7 @@ class Templates:
         query_sequence: str,
         msa_a3m: str,
         max_template_date: datetime.date,
+        max_subsequence_ratio: float | None,
         seqres_database_path: os.PathLike[str] | str,
         max_a3m_query_sequences: int | None,
         structure_store: structure_stores.StructureStore,
@@ -752,6 +771,9 @@ class Templates:
             used to create an HMM for the hmmsearch run.
         max_template_date: This is used to filter templates for training, ensuring
             that they do not leak ground truth information used in testing sets.
+        max_subsequence_ratio: The maximum ratio of the length of a template subsequence to the length of the query sequence.
+            If a template is an exact subsequence of the query sequence and its length ratio is above this threshold,
+            it is excluded. This is to avoid ground truth leakage from templates which are almost the same as the query.
         pdb_database_path: A path to the sequence database to search for templates.
         seqres_database_path: A path to the seqres database to build the HMM from.
         max_a3m_query_sequences: The maximum number of input MSA sequences to use
@@ -781,6 +803,7 @@ class Templates:
             query_sequence=query_sequence,
             a3m=hmmsearch_a3m,
             max_template_date=max_template_date,
+            max_subsequence_ratio=max_subsequence_ratio,
             query_release_date=query_release_date,
             chain_poly_type=chain_poly_type,
             structure_store=structure_store,
@@ -793,6 +816,7 @@ class Templates:
         query_sequence: str,
         a3m: str,
         max_template_date: datetime.date,
+        max_subsequence_ratio: float | None,
         structure_store: structure_stores.StructureStore,
         query_release_date: datetime.date | None = None,
         chain_poly_type: str = PROTEIN_CHAIN,
@@ -805,6 +829,9 @@ class Templates:
             template alignments and pdb codes.
         max_template_date: This is used to filter templates for training, ensuring
             that they do not leak ground truth information used in testing sets.
+        max_subsequence_ratio: The maximum ratio of the length of a template subsequence to the length of the query sequence.
+            If a template is an exact subsequence of the query sequence and its length ratio is above this threshold,
+            it is excluded. This is to avoid ground truth leakage from templates which are almost the same as the query.
         structure_store: Structure store to fetch template structures from.
         filter_config: Optional config that controls which and how many hits to
             keep. More performant than constructing and then filtering. If not
@@ -861,7 +888,7 @@ class Templates:
         hits = _filter_hits(
             hit_generator(a3m),
             release_date_cutoff=max_template_date,
-            max_subsequence_ratio=0.95,
+            max_subsequence_ratio=max_subsequence_ratio,
             min_align_ratio=0.1,
             min_hit_length=10,
             deduplicate_sequences=True,
@@ -1197,9 +1224,9 @@ def run_hmmsearch_with_a3m(
             )
         if savehmmsto:
             currentworkingdir = os.getcwd()
-            hmmsearch_sto_path = os.path.join(currentworkingdir, "hmmsearch.a3m")
+            hmmsearch_sto_path = os.path.join(currentworkingdir, "hmmsearch.sto")
         else:
-            hmmsearch_sto_path = os.path.join(tmpdir, "hmmsearch.a3m")
+            hmmsearch_sto_path = os.path.join(tmpdir, "hmmsearch.sto")
         hmmsearch_cmd = [
             hmmsearch_binary_path,
             "--noali",
@@ -1254,6 +1281,7 @@ def search_templates(
     seqres_database_path: str | os.PathLike[str] | None = None,
     savehmmsto: bool = False,
     max_template_date: datetime.date = datetime.date(2099, 12, 31),
+    max_subsequence_ratio: float | None = 0.95,
     hmmbuild_binary_path: str | None = shutil.which("hmmbuild"),
     hmmsearch_binary_path: str | None = shutil.which("hmmsearch"),
 ) -> list[dict[str, Any]]:
@@ -1265,6 +1293,7 @@ def search_templates(
         seqres_database_path: Path to the seqres database file.
         savehmmsto: Whether to save the HMM file generated by hmmbuild.
         max_template_date: Maximum release date for templates.
+        max_subsequence_ratio: The maximum ratio of the length of a template subsequence to the length of the query sequence.
         hmmbuild_binary_path: Path to the hmmbuild binary. If None, uses "hmmbuild" from PATH.
         hmmsearch_binary_path: Path to the hmmsearch binary. If None, uses "hmmsearch" from PATH.
     Returns:
@@ -1286,6 +1315,7 @@ def search_templates(
         msa_a3m=msa_a3m_string,
         max_template_date=max_template_date,
         seqres_database_path=seqres_database_path,
+        max_subsequence_ratio=max_subsequence_ratio,
         max_a3m_query_sequences=None,
         structure_store=structure_store,
         hmmbuild_binary_path=hmmbuild_binary_path,

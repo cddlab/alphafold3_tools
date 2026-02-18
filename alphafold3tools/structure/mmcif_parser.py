@@ -81,6 +81,22 @@ def _filter_df_by_columns(df: pd.DataFrame, filters: dict[str, str]) -> pd.DataF
     return result
 
 
+def _safe_to_list(
+    df: pd.DataFrame,
+    column: str,
+    default_value: str = "",
+) -> list:
+    """Safely convert a DataFrame column to list.
+
+    If the column does not exist, return a list of default values with the same
+    number of rows as the DataFrame. Existing columns are returned as-is and may
+    include missing values.
+    """
+    if column in df.columns:
+        return df[column].to_list()
+    return [default_value] * len(df)
+
+
 def format_atom_site_dict(target_atom_site_df: pd.DataFrame) -> dict:
     """Format atom site DataFrame and convert to dictionary.
 
@@ -293,7 +309,10 @@ def mmcifcontent(
         "num": target_poly_seqs["num"].to_list(),
     }
     # _exptl.method
-    exptl_method = block.find_value("_exptl.method")
+    if block.find_value("_exptl.method") is None:
+        exptl_method = "unknown"
+    else:
+        exptl_method = block.find_value("_exptl.method")
     # _pdbx_audit_revision_history.revision_date: only the first row
     df_revision_histories = _get_mmcif_category_as_df(
         block, "_pdbx_audit_revision_history"
@@ -332,20 +351,24 @@ def mmcifcontent(
     # _pdbx_struct_assembly loop
     df_pdbx_struct_assembly = _get_mmcif_category_as_df(block, "_pdbx_struct_assembly")
     pdbx_struct_assembly_dict = {
-        "details": df_pdbx_struct_assembly["details"].to_list(),
-        "id": df_pdbx_struct_assembly["id"].to_list(),
-        "method_details": df_pdbx_struct_assembly["method_details"].to_list(),
-        "oligomeric_count": df_pdbx_struct_assembly["oligomeric_count"].to_list(),
-        "oligomeric_details": df_pdbx_struct_assembly["oligomeric_details"].to_list(),
+        "details": _safe_to_list(df_pdbx_struct_assembly, "details"),
+        "id": _safe_to_list(df_pdbx_struct_assembly, "id"),
+        "method_details": _safe_to_list(df_pdbx_struct_assembly, "method_details"),
+        "oligomeric_count": _safe_to_list(df_pdbx_struct_assembly, "oligomeric_count"),
+        "oligomeric_details": _safe_to_list(
+            df_pdbx_struct_assembly, "oligomeric_details"
+        ),
     }
     # _pdbx_struct_assembly_gen
     df_pdbx_struct_assembly_gen = _get_mmcif_category_as_df(
         block, "_pdbx_struct_assembly_gen"
     )
     pdbx_structure_assembly_gen_dict = {
-        "assembly_id": df_pdbx_struct_assembly_gen["assembly_id"].to_list(),
-        "asym_id_list": df_pdbx_struct_assembly_gen["asym_id_list"].to_list(),
-        "oper_expression": df_pdbx_struct_assembly_gen["oper_expression"].to_list(),
+        "assembly_id": _safe_to_list(df_pdbx_struct_assembly_gen, "assembly_id"),
+        "asym_id_list": _safe_to_list(df_pdbx_struct_assembly_gen, "asym_id_list"),
+        "oper_expression": _safe_to_list(
+            df_pdbx_struct_assembly_gen, "oper_expression"
+        ),
     }
     # _pdbx_struct_oper_list
     pdbx_struct_oper_list = _sort_dict_by_keys(
