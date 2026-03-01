@@ -36,6 +36,10 @@ On Ubuntu, the commands will be installed in `~/.local/bin` or in the `.venv` di
 export PATH=$PATH:~/.local/bin
 ```
 
+### For developers
+
+This package is maintained with [uv](https://docs.astral.sh/uv/getting-started/installation/).
+
 ## Usage
 
 More detailed usage information can be found by running the commands with the `-h` option. The version information will be displayed with the `-v` option.
@@ -58,8 +62,9 @@ msatojson -i /path/to/a3m_containing/directory -o /path/to/output/directory
 
 From version 0.2.0, templates can be also added to the output JSON file. Use the `--include_templates` option to include templates. The directory path `/path/to/mmcif_files` containing mmCIF files and the corresponding `pdb_seqres.txt` file must be specified with the `--pdb_database_path` and `--seqres_database_path` options, respectively.
 
-- `--max_template_date` option can be used to set the maximum template date. The default value is `2099-09-30`, which means no filtering based on template date. Please note that the default value of AlphaFold3 is set to `2021-09-30`.
+- `--max_template_date` option can be used to set the maximum template date. The default value is `2099-09-30`, which means no filtering based on template date. **If you want to the same results as AlphaFold3, set this value to `2021-09-30`.**
 - `--max_subsequence_ratio` option can be used to set the maximum subsequence ratio for template filtering. The default value is `0.95` (same as the default value of AlphaFold3). However, if you want to include all templates regardless of the subsequence ratio, set this option to `1.0`.
+- `-d` option can be used to enable debug mode, which will print debug information during the template search process.
 
 ```bash
 # Example command to include templates in the output JSON file
@@ -71,7 +76,8 @@ msatojson -i input.a3m -o output.json \
     --hmmbuild_binary_path /path/to/hmmbuild \
     --hmmsearch_binary_path /path/to/hmmsearch \
     --save_hmmsto \
-    --max_subsequence_ratio 1.0
+    --max_subsequence_ratio 1.0 \
+    -d
 ```
 
 > [!NOTE]
