@@ -243,3 +243,7 @@ This tool uses the following libraries:
 - [loguru](https://loguru.readthedocs.io/en/stable/)
 
 [PDBeurope/ccdutils](https://github.com/PDBeurope/ccdutils) is used for the conversion of sdf to ccd.
+
+## How do I reference this work?
+
+- Moriwaki Y et al. [Predicting protein complexes in biosynthetic gene clusters](https://www.biorxiv.org/content/10.1101/2025.10.26.684697v1), bioRxiv 2025.10.26.684697; doi: [10.1101/2025.10.26.684697](https://doi.org/10.1101/2025.10.26.684697)
