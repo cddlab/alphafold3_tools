@@ -18,6 +18,7 @@ import json
 import math
 import sys
 from argparse import ArgumentParser
+from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
@@ -1234,6 +1235,217 @@ def write_json(
         fh.write("\n")
 
 
+_TXT_HEADER = (
+    "\nChn1 Chn2  PAE Dist  Type   ipSAE    ipSAE_d0chn ipSAE_d0dom"
+    "  ipTM_af  ipTM_d0chn     pDockQ     pDockQ2    LIS"
+    "       n0res  n0chn  n0dom   d0res   d0chn   d0dom"
+    "  nres1   nres2   dist1   dist2  Model\n"
+)
+_PML_HEADER = (
+    "# Chn1 Chn2  PAE Dist  Type   ipSAE    ipSAE_d0chn ipSAE_d0dom"
+    "  ipTM_af  ipTM_d0chn     pDockQ     pDockQ2    LIS"
+    "      n0res  n0chn  n0dom   d0res   d0chn   d0dom"
+    "  nres1   nres2   dist1   dist2  Model\n"
+)
+
+
+def _iter_pair_lines(
+    unique_chains: np.ndarray,
+    scores: dict,
+    pdockq: dict,
+    pdockq2: dict,
+    lis: dict,
+    iptm_per_pair: dict,
+    pae_string: str,
+    dist_string: str,
+    model_stem: str,
+) -> Iterator[tuple[list[str], list[str]]]:
+    """Yield (txt_lines, pml_lines) for each chain pair."""
+    chainpairs: set[str] = set()
+    for c1 in unique_chains:
+        for c2 in unique_chains:
+            if c1 < c2:
+                chainpairs.add(f"{c1}-{c2}")
+
+    for pair in sorted(chainpairs):
+        chain_a, chain_b = pair.split("-")
+        txt_lines: list[str] = []
+        pml_lines: list[str] = []
+
+        for chain1, chain2 in ((chain_a, chain_b), (chain_b, chain_a)):
+            color1 = CHAIN_COLORS.get(chain1, "magenta")
+            color2 = CHAIN_COLORS.get(chain2, "marine")
+
+            nres1 = len(scores["unique_res_chain1"][chain1][chain2])
+            nres2 = len(scores["unique_res_chain2"][chain1][chain2])
+            dist1 = len(scores["dist_unique_res_chain1"][chain1][chain2])
+            dist2 = len(scores["dist_unique_res_chain2"][chain1][chain2])
+
+            asym_line = _fmt_summary_line(
+                chain1,
+                chain2,
+                pae_string,
+                dist_string,
+                "asym",
+                scores["ipsae_d0res_asym"][chain1][chain2],
+                scores["ipsae_d0chn_asym"][chain1][chain2],
+                scores["ipsae_d0dom_asym"][chain1][chain2],
+                iptm_per_pair[chain1][chain2],
+                scores["iptm_d0chn_asym"][chain1][chain2],
+                pdockq[chain1][chain2],
+                pdockq2[chain1][chain2],
+                lis[chain1][chain2],
+                int(scores["n0res"][chain1][chain2]),
+                int(scores["n0chn"][chain1][chain2]),
+                int(scores["n0dom"][chain1][chain2]),
+                scores["d0res"][chain1][chain2],
+                scores["d0chn"][chain1][chain2],
+                scores["d0dom"][chain1][chain2],
+                nres1,
+                nres2,
+                dist1,
+                dist2,
+                model_stem,
+            )
+            txt_lines.append(asym_line)
+            pml_lines.append("# " + asym_line)
+
+            if chain1 > chain2:
+                nres1_max = max(
+                    len(scores["unique_res_chain2"][chain1][chain2]),
+                    len(scores["unique_res_chain1"][chain2][chain1]),
+                )
+                nres2_max = max(
+                    len(scores["unique_res_chain1"][chain1][chain2]),
+                    len(scores["unique_res_chain2"][chain2][chain1]),
+                )
+                dist1_max = max(
+                    len(scores["dist_unique_res_chain2"][chain1][chain2]),
+                    len(scores["dist_unique_res_chain1"][chain2][chain1]),
+                )
+                dist2_max = max(
+                    len(scores["dist_unique_res_chain1"][chain1][chain2]),
+                    len(scores["dist_unique_res_chain2"][chain2][chain1]),
+                )
+                pdockq2_max = max(pdockq2[chain1][chain2], pdockq2[chain2][chain1])
+                lis_avg = (lis[chain1][chain2] + lis[chain2][chain1]) / 2.0
+
+                max_line = _fmt_summary_line(
+                    chain2,
+                    chain1,
+                    pae_string,
+                    dist_string,
+                    "max",
+                    scores["ipsae_d0res_max"][chain1][chain2],
+                    scores["ipsae_d0chn_max"][chain1][chain2],
+                    scores["ipsae_d0dom_max"][chain1][chain2],
+                    iptm_per_pair[chain1][chain2],
+                    scores["iptm_d0chn_max"][chain1][chain2],
+                    pdockq[chain1][chain2],
+                    pdockq2_max,
+                    lis_avg,
+                    int(scores["n0res_max"][chain1][chain2]),
+                    int(scores["n0chn"][chain1][chain2]),
+                    int(scores["n0dom_max"][chain1][chain2]),
+                    scores["d0res_max"][chain1][chain2],
+                    scores["d0chn"][chain1][chain2],
+                    scores["d0dom_max"][chain1][chain2],
+                    nres1_max,
+                    nres2_max,
+                    dist1_max,
+                    dist2_max,
+                    model_stem,
+                )
+                txt_lines.append(max_line)
+                pml_lines.append("# " + max_line)
+
+                nres1_min = min(
+                    len(scores["unique_res_chain2"][chain1][chain2]),
+                    len(scores["unique_res_chain1"][chain2][chain1]),
+                )
+                nres2_min = min(
+                    len(scores["unique_res_chain1"][chain1][chain2]),
+                    len(scores["unique_res_chain2"][chain2][chain1]),
+                )
+                dist1_min = min(
+                    len(scores["dist_unique_res_chain2"][chain1][chain2]),
+                    len(scores["dist_unique_res_chain1"][chain2][chain1]),
+                )
+                dist2_min = min(
+                    len(scores["dist_unique_res_chain1"][chain1][chain2]),
+                    len(scores["dist_unique_res_chain2"][chain2][chain1]),
+                )
+                pdockq2_min = min(pdockq2[chain1][chain2], pdockq2[chain2][chain1])
+
+                min_line = _fmt_summary_line(
+                    chain2,
+                    chain1,
+                    pae_string,
+                    dist_string,
+                    "min",
+                    scores["ipsae_d0res_min"][chain1][chain2],
+                    scores["ipsae_d0chn_min"][chain1][chain2],
+                    scores["ipsae_d0dom_min"][chain1][chain2],
+                    iptm_per_pair[chain1][chain2],
+                    scores["iptm_d0chn_min"][chain1][chain2],
+                    pdockq[chain1][chain2],
+                    pdockq2_min,
+                    lis_avg,
+                    int(scores["n0res_min"][chain1][chain2]),
+                    int(scores["n0chn"][chain1][chain2]),
+                    int(scores["n0dom_min"][chain1][chain2]),
+                    scores["d0res_min"][chain1][chain2],
+                    scores["d0chn"][chain1][chain2],
+                    scores["d0dom_min"][chain1][chain2],
+                    nres1_min,
+                    nres2_min,
+                    dist1_min,
+                    dist2_min,
+                    model_stem,
+                )
+                txt_lines.append(min_line)
+                pml_lines.append("# " + min_line)
+
+            res1_str = contiguous_ranges(scores["unique_res_chain1"][chain1][chain2])
+            res2_str = contiguous_ranges(scores["unique_res_chain2"][chain1][chain2])
+            pml_lines.append(
+                f"alias color_{chain1}_{chain2}, color gray80, all;"
+                f" color {color1}, chain  {chain1} and resi {res1_str};"
+                f" color {color2}, chain  {chain2} and resi {res2_str}\n\n"
+            )
+
+        txt_lines.append("\n")
+        yield txt_lines, pml_lines
+
+
+def write_pml(
+    pml_path: Path,
+    unique_chains: np.ndarray,
+    scores: dict,
+    pdockq: dict,
+    pdockq2: dict,
+    lis: dict,
+    iptm_per_pair: dict,
+    pae_string: str,
+    dist_string: str,
+    model_stem: str,
+) -> None:
+    with open(pml_path, "w") as pml:
+        pml.write(_PML_HEADER)
+        for _, pml_lines in _iter_pair_lines(
+            unique_chains,
+            scores,
+            pdockq,
+            pdockq2,
+            lis,
+            iptm_per_pair,
+            pae_string,
+            dist_string,
+            model_stem,
+        ):
+            pml.writelines(pml_lines)
+
+
 def write_summary_and_pml(
     txt_path: Path,
     pml_path: Path,
@@ -1247,181 +1459,163 @@ def write_summary_and_pml(
     dist_string: str,
     model_stem: str,
 ) -> None:
-    txt_header = (
-        "\nChn1 Chn2  PAE Dist  Type   ipSAE    ipSAE_d0chn ipSAE_d0dom"
-        "  ipTM_af  ipTM_d0chn     pDockQ     pDockQ2    LIS"
-        "       n0res  n0chn  n0dom   d0res   d0chn   d0dom"
-        "  nres1   nres2   dist1   dist2  Model\n"
-    )
-    pml_header = (
-        "# Chn1 Chn2  PAE Dist  Type   ipSAE    ipSAE_d0chn ipSAE_d0dom"
-        "  ipTM_af  ipTM_d0chn     pDockQ     pDockQ2    LIS"
-        "      n0res  n0chn  n0dom   d0res   d0chn   d0dom"
-        "  nres1   nres2   dist1   dist2  Model\n"
-    )
-
-    chainpairs: set[str] = set()
-    for c1 in unique_chains:
-        for c2 in unique_chains:
-            if c1 < c2:
-                chainpairs.add(f"{c1}-{c2}")
-
     with open(txt_path, "w") as txt, open(pml_path, "w") as pml:
-        txt.write(txt_header)
-        pml.write(pml_header)
-
-        for pair in sorted(chainpairs):
-            chain_a, chain_b = pair.split("-")
-            for chain1, chain2 in ((chain_a, chain_b), (chain_b, chain_a)):
-                color1 = CHAIN_COLORS.get(chain1, "magenta")
-                color2 = CHAIN_COLORS.get(chain2, "marine")
-
-                nres1 = len(scores["unique_res_chain1"][chain1][chain2])
-                nres2 = len(scores["unique_res_chain2"][chain1][chain2])
-                dist1 = len(scores["dist_unique_res_chain1"][chain1][chain2])
-                dist2 = len(scores["dist_unique_res_chain2"][chain1][chain2])
-
-                asym_line = _fmt_summary_line(
-                    chain1,
-                    chain2,
-                    pae_string,
-                    dist_string,
-                    "asym",
-                    scores["ipsae_d0res_asym"][chain1][chain2],
-                    scores["ipsae_d0chn_asym"][chain1][chain2],
-                    scores["ipsae_d0dom_asym"][chain1][chain2],
-                    iptm_per_pair[chain1][chain2],
-                    scores["iptm_d0chn_asym"][chain1][chain2],
-                    pdockq[chain1][chain2],
-                    pdockq2[chain1][chain2],
-                    lis[chain1][chain2],
-                    int(scores["n0res"][chain1][chain2]),
-                    int(scores["n0chn"][chain1][chain2]),
-                    int(scores["n0dom"][chain1][chain2]),
-                    scores["d0res"][chain1][chain2],
-                    scores["d0chn"][chain1][chain2],
-                    scores["d0dom"][chain1][chain2],
-                    nres1,
-                    nres2,
-                    dist1,
-                    dist2,
-                    model_stem,
-                )
-                txt.write(asym_line)
-                pml.write("# " + asym_line)
-
-                if chain1 > chain2:
-                    nres1_max = max(
-                        len(scores["unique_res_chain2"][chain1][chain2]),
-                        len(scores["unique_res_chain1"][chain2][chain1]),
-                    )
-                    nres2_max = max(
-                        len(scores["unique_res_chain1"][chain1][chain2]),
-                        len(scores["unique_res_chain2"][chain2][chain1]),
-                    )
-                    dist1_max = max(
-                        len(scores["dist_unique_res_chain2"][chain1][chain2]),
-                        len(scores["dist_unique_res_chain1"][chain2][chain1]),
-                    )
-                    dist2_max = max(
-                        len(scores["dist_unique_res_chain1"][chain1][chain2]),
-                        len(scores["dist_unique_res_chain2"][chain2][chain1]),
-                    )
-                    pdockq2_max = max(pdockq2[chain1][chain2], pdockq2[chain2][chain1])
-                    lis_avg = (lis[chain1][chain2] + lis[chain2][chain1]) / 2.0
-
-                    max_line = _fmt_summary_line(
-                        chain2,
-                        chain1,
-                        pae_string,
-                        dist_string,
-                        "max",
-                        scores["ipsae_d0res_max"][chain1][chain2],
-                        scores["ipsae_d0chn_max"][chain1][chain2],
-                        scores["ipsae_d0dom_max"][chain1][chain2],
-                        iptm_per_pair[chain1][chain2],
-                        scores["iptm_d0chn_max"][chain1][chain2],
-                        pdockq[chain1][chain2],
-                        pdockq2_max,
-                        lis_avg,
-                        int(scores["n0res_max"][chain1][chain2]),
-                        int(scores["n0chn"][chain1][chain2]),
-                        int(scores["n0dom_max"][chain1][chain2]),
-                        scores["d0res_max"][chain1][chain2],
-                        scores["d0chn"][chain1][chain2],
-                        scores["d0dom_max"][chain1][chain2],
-                        nres1_max,
-                        nres2_max,
-                        dist1_max,
-                        dist2_max,
-                        model_stem,
-                    )
-                    txt.write(max_line)
-                    pml.write("# " + max_line)
-
-                    nres1_min = min(
-                        len(scores["unique_res_chain2"][chain1][chain2]),
-                        len(scores["unique_res_chain1"][chain2][chain1]),
-                    )
-                    nres2_min = min(
-                        len(scores["unique_res_chain1"][chain1][chain2]),
-                        len(scores["unique_res_chain2"][chain2][chain1]),
-                    )
-                    dist1_min = min(
-                        len(scores["dist_unique_res_chain2"][chain1][chain2]),
-                        len(scores["dist_unique_res_chain1"][chain2][chain1]),
-                    )
-                    dist2_min = min(
-                        len(scores["dist_unique_res_chain1"][chain1][chain2]),
-                        len(scores["dist_unique_res_chain2"][chain2][chain1]),
-                    )
-                    pdockq2_min = min(pdockq2[chain1][chain2], pdockq2[chain2][chain1])
-
-                    min_line = _fmt_summary_line(
-                        chain2,
-                        chain1,
-                        pae_string,
-                        dist_string,
-                        "min",
-                        scores["ipsae_d0res_min"][chain1][chain2],
-                        scores["ipsae_d0chn_min"][chain1][chain2],
-                        scores["ipsae_d0dom_min"][chain1][chain2],
-                        iptm_per_pair[chain1][chain2],
-                        scores["iptm_d0chn_min"][chain1][chain2],
-                        pdockq[chain1][chain2],
-                        pdockq2_min,
-                        lis_avg,
-                        int(scores["n0res_min"][chain1][chain2]),
-                        int(scores["n0chn"][chain1][chain2]),
-                        int(scores["n0dom_min"][chain1][chain2]),
-                        scores["d0res_min"][chain1][chain2],
-                        scores["d0chn"][chain1][chain2],
-                        scores["d0dom_min"][chain1][chain2],
-                        nres1_min,
-                        nres2_min,
-                        dist1_min,
-                        dist2_min,
-                        model_stem,
-                    )
-                    txt.write(min_line)
-                    pml.write("# " + min_line)
-
-                res1_str = contiguous_ranges(
-                    scores["unique_res_chain1"][chain1][chain2]
-                )
-                res2_str = contiguous_ranges(
-                    scores["unique_res_chain2"][chain1][chain2]
-                )
-                pml.write(
-                    f"alias color_{chain1}_{chain2}, color gray80, all;"
-                    f" color {color1}, chain  {chain1} and resi {res1_str};"
-                    f" color {color2}, chain  {chain2} and resi {res2_str}\n\n"
-                )
-
-            txt.write("\n")
+        txt.write(_TXT_HEADER)
+        pml.write(_PML_HEADER)
+        for txt_lines, pml_lines in _iter_pair_lines(
+            unique_chains,
+            scores,
+            pdockq,
+            pdockq2,
+            lis,
+            iptm_per_pair,
+            pae_string,
+            dist_string,
+            model_stem,
+        ):
+            txt.writelines(txt_lines)
+            pml.writelines(pml_lines)
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
+_AF2_PAE_GLOB = "*_scores_rank_001_alphafold2_multimer_v3_model_*_seed_*.json"
+_AF2_SCORES_MARKER = "_scores_rank_001_"
+_AF3_PAE_SUFFIX = "_confidences.json"
+_AF3_SUMMARY_SUFFIX = "_summary_confidences.json"
+
+
+def find_inputs(input_dir: str | Path) -> tuple[Path, Path]:
+    """Find PAE and structure files in a directory, auto-detecting AF2 or AF3 format.
+
+    AF2 format:
+        PAE:    [prefix]_scores_rank_001_alphafold2_multimer_v3_model_N_seed_NNN.json
+        struct: [prefix]_relaxed_rank_001_alphafold2_multimer_v3_model_N_seed_NNN.pdb
+                (falls back to _unrelaxed_ if relaxed is absent)
+
+    AF3 format:
+        PAE:    [prefix]_confidences.json
+        struct: [prefix]_model.cif
+
+    Returns:
+        (pae_file, struct_file) as resolved Paths.
+
+    Raises:
+        NotADirectoryError: if input_dir is not a directory.
+        FileNotFoundError: if required files cannot be found.
+        ValueError: if format cannot be determined or files are ambiguous.
+    """
+    d = Path(input_dir)
+    if not d.is_dir():
+        raise NotADirectoryError(f"Not a directory: {d}")
+
+    # Try AF2
+    af2_pae_files = list(d.glob(_AF2_PAE_GLOB))
+    if af2_pae_files:
+        if len(af2_pae_files) > 1:
+            raise ValueError(
+                f"Multiple AF2 rank_001 PAE files found in {d}: {af2_pae_files}"
+            )
+        pae_file = af2_pae_files[0]
+        stem = pae_file.stem
+        relaxed_stem = stem.replace(_AF2_SCORES_MARKER, "_relaxed_rank_001_", 1)
+        unrelaxed_stem = stem.replace(_AF2_SCORES_MARKER, "_unrelaxed_rank_001_", 1)
+        relaxed = d / f"{relaxed_stem}.pdb"
+        unrelaxed = d / f"{unrelaxed_stem}.pdb"
+        if relaxed.exists():
+            return pae_file, relaxed
+        if unrelaxed.exists():
+            return pae_file, unrelaxed
+        raise FileNotFoundError(
+            f"No PDB found for '{relaxed_stem}' or '{unrelaxed_stem}' in {d}"
+        )
+
+    # Try AF3
+    af3_pae_files = [
+        f
+        for f in d.glob(f"*{_AF3_PAE_SUFFIX}")
+        if not f.name.endswith(_AF3_SUMMARY_SUFFIX)
+    ]
+    if af3_pae_files:
+        if len(af3_pae_files) > 1:
+            raise ValueError(f"Multiple AF3 PAE files found in {d}: {af3_pae_files}")
+        pae_file = af3_pae_files[0]
+        prefix = pae_file.name[: -len(_AF3_PAE_SUFFIX)]
+        struct_file = d / f"{prefix}_model.cif"
+        if not struct_file.exists():
+            raise FileNotFoundError(f"Expected CIF file not found: {struct_file}")
+        return pae_file, struct_file
+
+    raise ValueError(
+        f"Cannot determine format in {d}. "
+        f"Expected AF2: {_AF2_PAE_GLOB}, "
+        f"or AF3: *{_AF3_PAE_SUFFIX} + *_model.cif"
+    )
+
+
+def find_colabfold_inputs(
+    input_dir: str | Path,
+) -> list[tuple[Path, Path, str]]:
+    """Find all complete ColabFold predictions in a directory.
+
+    A prediction with prefix 'AAA' is considered complete when both
+    ``AAA.done.txt`` and ``AAA_coverage.png`` are present in the directory.
+
+    For each complete prefix the function locates the rank-001 PAE JSON and
+    the corresponding relaxed (preferred) or unrelaxed PDB file.
+
+    Returns:
+        Sorted list of ``(pae_file, struct_file, prefix)`` tuples.
+        Returns an empty list when no valid predictions are found.
+
+    Raises:
+        NotADirectoryError: if *input_dir* is not a directory.
+    """
+    d = Path(input_dir)
+    if not d.is_dir():
+        raise NotADirectoryError(f"Not a directory: {d}")
+
+    results: list[tuple[Path, Path, str]] = []
+    for done_file in sorted(d.glob("*.done.txt")):
+        name = done_file.name
+        if not name.endswith(".done.txt"):
+            continue
+        prefix = name[: -len(".done.txt")]
+
+        if not (d / f"{prefix}_coverage.png").exists():
+            continue
+
+        pae_glob = (
+            f"{prefix}_scores_rank_001_alphafold2_multimer_v3_model_*_seed_*.json"
+        )
+        pae_files = list(d.glob(pae_glob))
+        if not pae_files:
+            logger.warning(f"No PAE file found for prefix '{prefix}' in {d}; skipping")
+            continue
+        if len(pae_files) > 1:
+            logger.warning(
+                f"Multiple PAE files for prefix '{prefix}' in {d}: {pae_files}; skipping"
+            )
+            continue
+
+        pae_file = pae_files[0]
+        stem = pae_file.stem
+        relaxed_stem = stem.replace(_AF2_SCORES_MARKER, "_relaxed_rank_001_", 1)
+        unrelaxed_stem = stem.replace(_AF2_SCORES_MARKER, "_unrelaxed_rank_001_", 1)
+        relaxed = d / f"{relaxed_stem}.pdb"
+        unrelaxed = d / f"{unrelaxed_stem}.pdb"
+
+        if relaxed.exists():
+            results.append((pae_file, relaxed, prefix))
+        elif unrelaxed.exists():
+            results.append((pae_file, unrelaxed, prefix))
+        else:
+            logger.warning(
+                f"No PDB found for prefix '{prefix}' "
+                f"(tried '{relaxed_stem}' and '{unrelaxed_stem}'); skipping"
+            )
+
+    return results
 
 
 def run_ipsae(
@@ -1430,6 +1624,7 @@ def run_ipsae(
     pae_cutoff: float,
     dist_cutoff: float,
     output_json: bool = False,
+    model_name: str | None = None,
 ) -> dict[str, Path]:
     """Calculate ipSAE and related scores.
 
@@ -1441,6 +1636,8 @@ def run_ipsae(
         pae_cutoff: PAE threshold in Angstroms.
         dist_cutoff: Distance threshold in Angstroms.
         output_json: If True, write JSON instead of txt summary.
+        model_name: Top-level key used in JSON output. Defaults to the struct
+            file stem when None.
 
     Returns:
         Dict with keys "txt"/"json", "byres", "pml" pointing to the written files.
@@ -1536,10 +1733,11 @@ def run_ipsae(
     )
 
     write_byres(byres_path, unique_chains, chains, residues, plddt, scores)
+    json_model_stem = model_name if model_name is not None else str(stem)
     if output_json:
         write_json(
             txt_path,
-            str(stem),
+            json_model_stem,
             unique_chains,
             scores,
             pdockq,
@@ -1548,6 +1746,18 @@ def run_ipsae(
             iptm_per_pair,
             pae_cutoff,
             dist_cutoff,
+        )
+        write_pml(
+            pml_path,
+            unique_chains,
+            scores,
+            pdockq,
+            pdockq2,
+            lis,
+            iptm_per_pair,
+            pae_str_int,
+            dist_str_int,
+            str(stem),
         )
         return {"json": txt_path, "byres": byres_path, "pml": pml_path}
 
@@ -1573,16 +1783,19 @@ def main() -> None:
         description="Calculate ipSAE scores for AlphaFold2/3 and Boltz models."
     )
     parser.add_argument(
+        "-i",
+        "--input_dir",
+        help="Input directory; auto-detects AF2/AF3 PAE and structure files",
+    )
+    parser.add_argument(
         "-p",
         "--pae_file",
         help="PAE file (.json for AF2/AF3, .npz for Boltz)",
-        required=True,
     )
     parser.add_argument(
         "-s",
         "--struct_file",
         help="Structure file (.pdb for AF2/Boltz, .cif for AF3/Boltz)",
-        required=True,
     )
     parser.add_argument(
         "-pc", "--pae_cutoff", type=float, help="PAE cutoff in Angstroms", default=10.0
@@ -1611,12 +1824,39 @@ def main() -> None:
     args = parser.parse_args()
     log_setup(args.loglevel)
 
+    if args.input_dir:
+        input_dir = Path(args.input_dir)
+        batch = find_colabfold_inputs(input_dir)
+        if batch:
+            for pae_file, struct_file, prefix in batch:
+                paths = run_ipsae(
+                    pae_file,
+                    struct_file,
+                    args.pae_cutoff,
+                    args.dist_cutoff,
+                    output_json=args.json,
+                    model_name=prefix,
+                )
+                for path in paths.values():
+                    logger.debug(f"Written: {path}")
+            return
+        pae_file, struct_file = find_inputs(input_dir)
+        model_name: str | None = input_dir.name
+    elif args.pae_file and args.struct_file:
+        pae_file, struct_file = Path(args.pae_file), Path(args.struct_file)
+        model_name = None
+    else:
+        parser.error(
+            "Specify either -i INPUT_DIR or both -p PAE_FILE and -s STRUCT_FILE"
+        )
+
     paths = run_ipsae(
-        args.pae_file,
-        args.struct_file,
+        pae_file,
+        struct_file,
         args.pae_cutoff,
         args.dist_cutoff,
         output_json=args.json,
+        model_name=model_name,
     )
     for path in paths.values():
         logger.debug(f"Written: {path}")

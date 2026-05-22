@@ -1,0 +1,7 @@
+
+Chn1 Chn2  PAE Dist  Type   ipSAE    ipSAE_d0chn ipSAE_d0dom  ipTM_af  ipTM_d0chn     pDockQ     pDockQ2    LIS       n0res  n0chn  n0dom   d0res   d0chn   d0dom  nres1   nres2   dist1   dist2  Model
+A    B     10   10   asym  0.749277    0.842141    0.837517    0.850    0.834945      0.5860     0.4167     0.5066     278    564    540    6.14    8.35    8.20    261     279      69      73   testfiles/ipsae/tlxi_tlxi_model
+B    A     10   10   asym  0.747618    0.841040    0.836185    0.850    0.833871      0.5860     0.4158     0.5042     278    564    539    6.14    8.35    8.20    260     279      69      73   testfiles/ipsae/tlxi_tlxi_model
+A    B     10   10   max   0.749277    0.842141    0.837517    0.850    0.834945      0.5860     0.4167     0.5054     278    564    540    6.14    8.35    8.20    279     279      73      73   testfiles/ipsae/tlxi_tlxi_model
+A    B     10   10   min   0.747618    0.841040    0.836185    0.850    0.833871      0.5860     0.4158     0.5054     278    564    539    6.14    8.35    8.20    261     260      69      69   testfiles/ipsae/tlxi_tlxi_model
+
