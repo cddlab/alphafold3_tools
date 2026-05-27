@@ -16,9 +16,11 @@ Usage as CLI:
 
 import json
 import math
+import os
 import sys
 from argparse import ArgumentParser
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -1553,6 +1555,41 @@ def find_inputs(input_dir: str | Path) -> tuple[Path, Path]:
     )
 
 
+def _check_colabfold_prefix(d: Path, prefix: str) -> tuple[Path, Path, str] | None:
+    """Validate one ColabFold prefix and return its (pae, struct, prefix), or None."""
+    if not (d / f"{prefix}_coverage.png").exists():
+        return None
+
+    pae_glob = f"{prefix}_scores_rank_001_alphafold2_multimer_v3_model_*_seed_*.json"
+    pae_files = list(d.glob(pae_glob))
+    if not pae_files:
+        logger.warning(f"No PAE file found for prefix '{prefix}' in {d}; skipping")
+        return None
+    if len(pae_files) > 1:
+        logger.warning(
+            f"Multiple PAE files for prefix '{prefix}' in {d}: {pae_files}; skipping"
+        )
+        return None
+
+    pae_file = pae_files[0]
+    stem = pae_file.stem
+    relaxed_stem = stem.replace(_AF2_SCORES_MARKER, "_relaxed_rank_001_", 1)
+    unrelaxed_stem = stem.replace(_AF2_SCORES_MARKER, "_unrelaxed_rank_001_", 1)
+    relaxed = d / f"{relaxed_stem}.pdb"
+    unrelaxed = d / f"{unrelaxed_stem}.pdb"
+
+    if relaxed.exists():
+        return pae_file, relaxed, prefix
+    if unrelaxed.exists():
+        return pae_file, unrelaxed, prefix
+
+    logger.warning(
+        f"No PDB found for prefix '{prefix}' "
+        f"(tried '{relaxed_stem}' and '{unrelaxed_stem}'); skipping"
+    )
+    return None
+
+
 def find_colabfold_inputs(
     input_dir: str | Path,
 ) -> list[tuple[Path, Path, str]]:
@@ -1563,6 +1600,7 @@ def find_colabfold_inputs(
 
     For each complete prefix the function locates the rank-001 PAE JSON and
     the corresponding relaxed (preferred) or unrelaxed PDB file.
+    Prefix validation runs in parallel across available CPU cores.
 
     Returns:
         Sorted list of ``(pae_file, struct_file, prefix)`` tuples.
@@ -1575,47 +1613,20 @@ def find_colabfold_inputs(
     if not d.is_dir():
         raise NotADirectoryError(f"Not a directory: {d}")
 
-    results: list[tuple[Path, Path, str]] = []
-    for done_file in sorted(d.glob("*.done.txt")):
-        name = done_file.name
-        if not name.endswith(".done.txt"):
-            continue
-        prefix = name[: -len(".done.txt")]
+    prefixes = [
+        name[: -len(".done.txt")]
+        for done_file in sorted(d.glob("*.done.txt"))
+        if (name := done_file.name).endswith(".done.txt")
+    ]
+    if not prefixes:
+        return []
 
-        if not (d / f"{prefix}_coverage.png").exists():
-            continue
+    workers = min(len(prefixes), os.cpu_count() or 1)
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(_check_colabfold_prefix, d, p) for p in prefixes]
+        raw = [f.result() for f in futures]
 
-        pae_glob = (
-            f"{prefix}_scores_rank_001_alphafold2_multimer_v3_model_*_seed_*.json"
-        )
-        pae_files = list(d.glob(pae_glob))
-        if not pae_files:
-            logger.warning(f"No PAE file found for prefix '{prefix}' in {d}; skipping")
-            continue
-        if len(pae_files) > 1:
-            logger.warning(
-                f"Multiple PAE files for prefix '{prefix}' in {d}: {pae_files}; skipping"
-            )
-            continue
-
-        pae_file = pae_files[0]
-        stem = pae_file.stem
-        relaxed_stem = stem.replace(_AF2_SCORES_MARKER, "_relaxed_rank_001_", 1)
-        unrelaxed_stem = stem.replace(_AF2_SCORES_MARKER, "_unrelaxed_rank_001_", 1)
-        relaxed = d / f"{relaxed_stem}.pdb"
-        unrelaxed = d / f"{unrelaxed_stem}.pdb"
-
-        if relaxed.exists():
-            results.append((pae_file, relaxed, prefix))
-        elif unrelaxed.exists():
-            results.append((pae_file, unrelaxed, prefix))
-        else:
-            logger.warning(
-                f"No PDB found for prefix '{prefix}' "
-                f"(tried '{relaxed_stem}' and '{unrelaxed_stem}'); skipping"
-            )
-
-    return results
+    return [r for r in raw if r is not None]
 
 
 def run_ipsae(
