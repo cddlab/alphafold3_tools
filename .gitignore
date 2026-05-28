@@ -12,6 +12,11 @@ wheels/
 .vscode
 .coverage
 .DS_Store
-uv.lock
+# Ruff stuff:
+.ruff_cache/
+# PyPI configuration file
+.pypirc
+# dot files
+.claude
 # data dir
 data/

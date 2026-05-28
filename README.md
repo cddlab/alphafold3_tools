@@ -8,37 +8,14 @@ Toolkit for alphafold3 input generation and output analysis
 
 Requirements:
 
-- Python 3.10 or later
-
-`brew install python@3.12` with [Homebrew](https://brew.sh/) is useful to install python3.12 on macOS.
-
-> [!NOTE]
-> If you are using python3.12, create and activate venv at first.
-> `/path/to/workingdirectory` is your working directory.
->
-> ```bash
-> mkdir -p /path/to/workingdirectory ; cd /path/to/workingdirectory
-> python3.12 -m venv .venv
-> source .venv/bin/activate
-> ```
+- Python 3.12 or later
 
 ```bash
-# Ubuntu 22.04 uses python3.10 by default. Use python3.12 if you have it instead of python3.10.
 # install from GitHub
 python3 -m pip install git+https://github.com/cddlab/alphafold3_tools.git
 # upgrade
 python3 -m pip uninstall alphafold3_tools -y && python3 -m pip install --upgrade git+https://github.com/cddlab/alphafold3_tools.git
 ```
-
-On Ubuntu, the commands will be installed in `~/.local/bin` or in the `.venv` directory (e.g. `/path/to/workingdirectory/.venv/bin`). You may need to add this directory to your `PATH` environment variable.
-
-```bash
-export PATH=$PATH:~/.local/bin
-```
-
-### For developers
-
-This package is maintained with [uv](https://docs.astral.sh/uv/getting-started/installation/).
 
 ## Usage
 
@@ -243,6 +220,105 @@ The `--pdb_id` option allows users to specify the PDB ID assigned to the output 
 
 Other tools are being developed and will be added.
 
+## ipsae
+
+`ipsae` calculates [ipSAE](https://www.biorxiv.org/content/10.1101/2025.02.10.637595v2) and related interaction scores (ipTM, [pDockQ](https://www.nature.com/articles/s41467-022-28865-w), [pDockQ2](https://academic.oup.com/bioinformatics/article/39/7/btad424/7219714), [LIS](https://www.biorxiv.org/content/10.1101/2024.02.19.580970v1)) for protein–protein (and protein–nucleic acid) complexes predicted by AlphaFold3, ColabFold, or Boltz. It is a reimplementation of [ipsae.py](https://github.com/DunbrackLab/IPSAE) (MIT License) by Roland L. Dunbrack Jr., extended with JSON output and batch processing support.
+
+### Basic usage — explicit file paths
+
+Specify PAE and structure files directly, equivalent to the original `ipsae.py` interface:
+
+```bash
+ipsae -p model_scores_rank_001.json -s model_relaxed_rank_001.pdb [-pc 10 -dc 10]
+```
+
+Options:
+
+- `-p / --pae_file`: PAE file (`.json` for AF2/AF3, `.npz` for Boltz)
+- `-s / --struct_file`: Structure file (`.pdb` for AF2/Boltz, `.cif` for AF3/Boltz)
+- `-pc / --pae_cutoff`: PAE threshold in Å (default: `10.0`)
+- `-dc / --dist_cutoff`: Cβ distance threshold in Å (default: `10.0`)
+
+### Directory mode — automatic input detection
+
+```bash
+ipsae -i /path/to/output_directory
+```
+
+When a directory is passed with `-i`, `ipsae` auto-detects the prediction format:
+
+| Format | PAE file | Structure file |
+| -------- | ---------- | ---------------- |
+| AlphaFold3 | `*_confidences.json` | `*_model.cif` |
+| ColabFold | `*_scores_rank_001_alphafold2_multimer_v3_model_*_seed_*.json` | `*_relaxed_rank_001_*.pdb` (falls back to `*_unrelaxed_*` if absent) |
+
+#### Batch processing for ColabFold outputs
+
+When the directory contains multiple ColabFold predictions, `ipsae` automatically processes all of them in one run. A prediction with prefix `foobar` is considered complete when both `foobar.done.txt` and `foobar_coverage.png` exist in the same directory. Prefix validation runs in parallel across all available CPU cores.
+
+```bash
+# Process all completed predictions in a ColabFold output directory
+ipsae -i /path/to/colabfold_output_dir
+```
+
+### Output files
+
+Three files are written next to each structure file:
+
+| File | Description |
+| ------ | ------------- |
+| `{stem}_{pae}_{dist}.txt` | Summary score table |
+| `{stem}_{pae}_{dist}_byres.txt` | Per-residue score table |
+| `{stem}_{pae}_{dist}.pml` | PyMOL script for interface visualisation |
+
+### JSON output with ipSAE\_min / ipSAE\_max
+
+```bash
+ipsae -i /path/to/output_directory --json
+```
+
+The `--json` flag replaces the `.txt` summary with a `.json` file. The JSON format extends the original ipSAE output by providing, for each chain pair, the **asymmetric** score for each direction as well as `max` and `min` values across the two asymmetric directions (`ipSAE_max` and `ipSAE_min`):
+
+```json
+{
+  "model_name": {
+    "pae_cutoff": 10,
+    "dist_cutoff": 10,
+    "A-B": {
+      "asym": [
+        {"chain1": "A", "chain2": "B", "ipSAE": 0.382, "ipSAE_d0chn": 0.412, "ipSAE_d0dom": 0.401, "ipTM_af": 0.65, "pDockQ": 0.731, "pDockQ2": 0.612, "LIS": 0.524, "...": "..."},
+        {"chain1": "B", "chain2": "A", "ipSAE": 0.315, "ipSAE_d0chn": 0.298, "ipSAE_d0dom": 0.307, "ipTM_af": 0.65, "pDockQ": 0.731, "pDockQ2": 0.589, "LIS": 0.511, "...": "..."}
+      ],
+      "max": {"chain1": "A", "chain2": "B", "ipSAE": 0.382, "...": "..."},
+      "min": {"chain1": "A", "chain2": "B", "ipSAE": 0.315, "...": "..."}
+    }
+  }
+}
+```
+
+### All usage examples
+
+```bash
+# AF2/ColabFold — explicit file paths (original ipsae.py interface)
+ipsae -p foo_scores_rank_001_alphafold2_multimer_v3_model_1_seed_000.json \
+      -s foo_relaxed_rank_001_alphafold2_multimer_v3_model_1_seed_000.pdb
+
+# AlphaFold3 — directory auto-detection
+ipsae -i /path/to/af3_seed-1_sample-0
+
+# ColabFold — batch processing of an entire output directory
+ipsae -i /path/to/colabfold_output_dir
+
+# Custom cutoffs
+ipsae -i /path/to/af3_seed-1_sample-0 -pc 15 -dc 15
+
+# JSON output (includes ipSAE_min and ipSAE_max per chain pair)
+ipsae -i /path/to/af3_seed-1_sample-0 --json
+
+# ColabFold batch with JSON output
+ipsae -i /path/to/colabfold_output_dir --json
+```
+
 ## Acknowledgements
 
 This tool uses the following libraries:
@@ -252,10 +328,11 @@ This tool uses the following libraries:
 - [numpy](https://numpy.org/)
 - [gemmi](https://gemmi.readthedocs.io/en/latest/)
 - [loguru](https://loguru.readthedocs.io/en/stable/)
+- [IPSAE](https://github.com/DunbrackLab/IPSAE)
 
 [PDBeurope/ccdutils](https://github.com/PDBeurope/ccdutils) is used for the conversion of sdf to ccd.
 RCSB PDB's [MAXIT](https://sw-tools.rcsb.org/apps/MAXIT/source.html) v11.400 is used as a reference for the conversion of PDB to mmCIF.
 
 ## How do I reference this work?
 
-- Moriwaki Y et al. [High-throughput prediction of protein–protein interactions uncovers hidden molecular networks in biosynthetic gene clusters](https://www.biorxiv.org/content/10.1101/2025.10.26.684697v2), bioRxiv 2025.10.26.684697; doi: [10.1101/2025.10.26.684697](https://doi.org/10.1101/2025.10.26.684697)
+- Moriwaki Y et al. [High-throughput prediction of protein–protein interactions uncovers hidden molecular networks in biosynthetic gene clusters](https://www.biorxiv.org/content/10.1101/2025.10.26.684697v2), bioRxiv 2025.10.26.684697; doi: [10.1101/2025.10.26.684697](https://doi.org/10.1101/2025.10.26.684697v2)
