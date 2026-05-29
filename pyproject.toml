@@ -1,6 +1,6 @@
 [project]
 name = "alphafold3_tools"
-version = "0.3.1"
+version = "0.4.0"
 description = "Toolkit for alphafold3 input and output files"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -72,15 +72,7 @@ dynamic = ["name", "version"]
 packages = ["alphafold3tools"]
 
 [project.scripts]
-msatojson = 'alphafold3tools.msatojson:main'
-jsontomsa = 'alphafold3tools.jsontomsa:main'
-paeplot = 'alphafold3tools.paeplot:main'
-pdbtocif = 'alphafold3tools.pdbtocif:main'
-sdftoccd = 'alphafold3tools.sdftoccd:main'
-modjson = 'alphafold3tools.modjson:main'
-fastatojson = 'alphafold3tools.fastatojson:main'
-superpose_ciffiles = 'alphafold3tools.superpose_ciffiles:main'
-ipsae = 'alphafold3tools.ipsae:main'
+af3tools = 'alphafold3tools.cli:main'
 
 [project.urls]
 Homepage = "https://github.com/cddlab/alphafold3_tools"
