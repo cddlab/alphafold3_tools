@@ -2,7 +2,7 @@
 
 Toolkit for alphafold3 input generation and output analysis
 
-[![Python Version](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/release/python-3100/) [![License](https://img.shields.io/badge/license-BSD%202--Clause-blue.svg)](https://opensource.org/licenses/BSD-2-Clause)
+[![Python Version](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/release/python-3100/) [![License](https://img.shields.io/badge/license-BSD%202--Clause-blue.svg)](https://opensource.org/licenses/BSD-2-Clause)
 
 ## Installation
 
@@ -12,9 +12,7 @@ Requirements:
 
 ```bash
 # install from GitHub
-python3 -m pip install git+https://github.com/cddlab/alphafold3_tools.git
-# upgrade
-python3 -m pip uninstall alphafold3_tools -y && python3 -m pip install --upgrade git+https://github.com/cddlab/alphafold3_tools.git
+python3 -m pip install alphafold3-tools
 ```
 
 ## Usage

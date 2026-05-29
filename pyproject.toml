@@ -61,6 +61,8 @@ dev = [
     "pytest>=8.3.3",
     "pyyaml>=6.0.3",
     "ruff>=0.15.10",
+    "build>=1.5.0",
+    "twine>=6.2.0",
 ]
 
 [tool.hatch.metadata]
