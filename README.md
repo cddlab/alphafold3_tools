@@ -2,7 +2,7 @@
 
 Toolkit for alphafold3 input generation and output analysis
 
-[![Python Version](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/release/python-3100/) [![License](https://img.shields.io/badge/license-BSD%202--Clause-blue.svg)](https://opensource.org/licenses/BSD-2-Clause)
+[![Python Version](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/release/python-3100/) [![License](https://img.shields.io/badge/license-BSD%202--Clause-blue.svg)](https://opensource.org/licenses/BSD-2-Clause) [![License](https://img.shields.io/pypi/v/alphafold3-tools.svg)](https://pypi.python.org/pypi/alphafold3-tools)
 
 ## Installation
 
@@ -11,8 +11,25 @@ Requirements:
 - Python 3.12 or later
 
 ```bash
-# install from GitHub
+# install from PyPI
 python3 -m pip install alphafold3-tools
+```
+
+Alternatively, [uv](https://docs.astral.sh/uv) is recommended to install and develop the package. See the instructions of [installation](https://docs.astral.sh/uv/getting-started/installation/):
+
+```bash
+# For Linux or macOS
+curl -LsSf https://astral.sh/uv/install.sh | sh
+# For macOS (Homebrew)
+brew install uv
+```
+
+Then, install the package with uv:
+
+```bash
+git clone git@github.com:cddlab/alphafold3_tools.git
+cd alphafold3_tools
+uv sync
 ```
 
 ## Usage
@@ -144,8 +161,8 @@ af3tools modjson -i input.json -o output.json [-n jobname] [-p] \
 af3tools paeplot -i /path/to/alphafold3_output/directory [-c {Greens_r,bwr}] [--dpi 300] [-n foo] [-f {png,svg}] [-a] [-t "PAE Plot"] [--chain-cmap {pymol,unhcr,<matplotlib_colormap_name>}]
 ```
 
-![greensr](./images/greensr.png)
-![bwr](./images/bwr.png)
+![greensr](https://raw.githubusercontent.com/cddlab/alphafold3_tools/refs/heads/main/images/greensr.png)
+![bwr](https://raw.githubusercontent.com/cddlab/alphafold3_tools/refs/heads/main/images/bwr.png)
 
 arguments:
 
@@ -177,7 +194,7 @@ color 0xFF7D45, b < 50
 util.cnc
 ```
 
-![plddt](./images/plddt.png)
+![plddt](https://raw.githubusercontent.com/cddlab/alphafold3_tools/refs/heads/main/images/plddt.png)
 
 > [!NOTE]
 > To visualize only an object of `seed-1_sample-0` with plddt values, type the following command in PyMOL.
@@ -319,7 +336,7 @@ af3tools ipsae -i /path/to/colabfold_output_dir --json
 
 ## Acknowledgements
 
-This tool uses the following libraries:
+This tool uses the following libraries and tools:
 
 - [RDKit](https://www.rdkit.org/)
 - [matplotlib](https://matplotlib.org/)
