@@ -4,6 +4,10 @@ Toolkit for alphafold3 input generation and output analysis
 
 [![Python Version](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/release/python-3100/) [![License](https://img.shields.io/badge/license-BSD%202--Clause-blue.svg)](https://opensource.org/licenses/BSD-2-Clause) [![License](https://img.shields.io/pypi/v/alphafold3-tools.svg)](https://pypi.python.org/pypi/alphafold3-tools)
 
+## How do I reference this work?
+
+- Moriwaki Y et al. [High-throughput prediction of protein–protein interactions uncovers hidden molecular networks in biosynthetic gene clusters](https://www.biorxiv.org/content/10.1101/2025.10.26.684697v2), bioRxiv 2025.10.26.684697; doi: [10.1101/2025.10.26.684697](https://doi.org/10.1101/2025.10.26.684697v2)
+
 ## Installation
 
 Requirements:
@@ -347,7 +351,3 @@ This tool uses the following libraries and tools:
 
 [PDBeurope/ccdutils](https://github.com/PDBeurope/ccdutils) is used for the conversion of sdf to ccd.
 RCSB PDB's [MAXIT](https://sw-tools.rcsb.org/apps/MAXIT/source.html) v11.400 is used as a reference for the conversion of PDB to mmCIF.
-
-## How do I reference this work?
-
-- Moriwaki Y et al. [High-throughput prediction of protein–protein interactions uncovers hidden molecular networks in biosynthetic gene clusters](https://www.biorxiv.org/content/10.1101/2025.10.26.684697v2), bioRxiv 2025.10.26.684697; doi: [10.1101/2025.10.26.684697](https://doi.org/10.1101/2025.10.26.684697v2)
