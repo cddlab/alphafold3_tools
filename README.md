@@ -6,7 +6,7 @@ Toolkit for alphafold3 input generation and output analysis
 
 ## How do I reference this work?
 
-- Moriwaki Y et al. [High-throughput prediction of protein–protein interactions uncovers hidden molecular networks in biosynthetic gene clusters](https://www.biorxiv.org/content/10.1101/2025.10.26.684697v2), bioRxiv 2025.10.26.684697; doi: [10.1101/2025.10.26.684697](https://doi.org/10.1101/2025.10.26.684697v2)
+- Moriwaki Y et al. [High-throughput prediction of protein–protein interactions uncovers hidden molecular networks in biosynthetic gene clusters](https://spj.science.org/doi/10.34133/csbj.0149), *Comput. Struct. Biol. J*; doi: [10.34133/csbj.0149](https://spj.science.org/doi/10.34133/csbj.0149)
 
 ## Installation
 
