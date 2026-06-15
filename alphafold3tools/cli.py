@@ -2,7 +2,7 @@
 
 Lazily imports only the selected subcommand's module so that heavy/
 side-effectful imports (matplotlib.use("Agg") in paeplot, np.set_printoptions
-in ipsae, rdkit in sdftoccd, gemmi in pdbtocif/superpose_ciffiles) do not run
+in metrics, rdkit in sdftoccd, gemmi in pdbtocif/superpose_ciffiles) do not run
 on every invocation.
 """
 
@@ -24,7 +24,7 @@ SUBCOMMANDS: dict[str, str] = {
     "sdftoccd": "alphafold3tools.sdftoccd",
     "jsontomsa": "alphafold3tools.jsontomsa",
     "pdbtocif": "alphafold3tools.pdbtocif",
-    "ipsae": "alphafold3tools.ipsae",
+    "metrics": "alphafold3tools.metrics",
 }
 
 _DESCRIPTIONS: dict[str, str] = {
@@ -36,7 +36,7 @@ _DESCRIPTIONS: dict[str, str] = {
     "sdftoccd": "Convert an SDF file to user-provided CCD (mmCIF).",
     "jsontomsa": "Extract a3m MSA from an AlphaFold3 input JSON.",
     "pdbtocif": "Convert a PDB file to mmCIF format.",
-    "ipsae": "Calculate ipSAE / ipTM / pDockQ interaction scores.",
+    "metrics": "Calculate ipSAE / ipTM / pDockQ / LIS interaction metrics.",
 }
 
 

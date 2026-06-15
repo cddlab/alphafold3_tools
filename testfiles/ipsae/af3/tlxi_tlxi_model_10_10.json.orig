@@ -2,6 +2,8 @@
   "tlxi_tlxi_model": {
     "pae_cutoff": 10,
     "dist_cutoff": 10,
+    "lis_pae_cutoff": 12,
+    "lis_cb_cutoff": 8,
     "A-B": {
       "asym": [
         {
@@ -92,6 +94,16 @@
         "nres2": 260,
         "dist1": 69,
         "dist2": 69
+      },
+      "lis_metrics": {
+        "LIS": 0.5054,
+        "cLIS": 0.7257,
+        "LIA": 134389,
+        "cLIA": 242,
+        "iLIS": 0.6056,
+        "iLIA": 5702.8,
+        "iLISA": 3453.6,
+        "actifpTM": 0.9798
       }
     }
   }

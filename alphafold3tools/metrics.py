@@ -1,17 +1,20 @@
-"""ipSAE: Interface predicted Score Average Error for protein-protein interactions.
+"""Interaction metrics for protein–protein/nucleic-acid complexes.
 
-Calculates ipSAE, ipTM, pDockQ, pDockQ2, and LIS scores for AlphaFold2,
-AlphaFold3, and Boltz structural models.
+Calculates ipSAE, ipTM, pDockQ, pDockQ2, LIS, and LIS-family scores
+(iLIS, iLIA, iLISA, actifpTM, cLIS, LIA, cLIA) for AlphaFold2, AlphaFold3,
+and Boltz structural models.
 
-Reference: https://www.biorxiv.org/content/10.1101/2025.02.10.637595v2
-Original author: Roland Dunbrack, Fox Chase Cancer Center
+References:
+    ipSAE: https://www.biorxiv.org/content/10.1101/2025.02.10.637595v2
+    LIS family: https://www.biorxiv.org/content/10.1101/2024.02.19.580970v1
+Original ipSAE author: Roland Dunbrack, Fox Chase Cancer Center
 
 Usage as module:
-    from alphafold3tools.ipsae import run_ipsae
+    from alphafold3tools.metrics import run_ipsae
     paths = run_ipsae("model.json", "model.cif", pae_cutoff=10, dist_cutoff=15)
 
 Usage as CLI:
-    ipsae <pae_file> <struct_file> <pae_cutoff> <dist_cutoff>
+    af3tools metrics -i /path/to/output_directory --json
 """
 
 import json
@@ -503,6 +506,192 @@ def compute_lis(
                     float(np.mean((12 - valid) / 12)) if valid.size > 0 else 0.0
                 )
     return lis
+
+
+# ── LIS-family metric computations (AFM-LIS) ──────────────────────────────────
+#
+# Reimplements the LIS/cLIS/iLIS/LIA/cLIA/iLIA/iLISA/actifpTM scores from
+# AFM-LIS (https://github.com/flyark/AFM-LIS) -- see also
+# https://doi.org/10.1101/2024.02.19.580970 and
+# https://doi.org/10.1101/2025.03.24.644977 for actifpTM.
+#
+# Conventions:
+#   * Per-direction LIS_{A->B} = mean( (cutoff - PAE)/cutoff ) over PAE < cutoff.
+#   * Symmetric pair-level: LIS = (LIS_{A->B} + LIS_{B->A}) / 2; same for cLIS.
+#   * LIA / cLIA are *counts*, summed over both directions.
+#   * iLIS = sqrt(LIS * cLIS); iLIA = sqrt(LIA * cLIA); iLISA = iLIS * iLIA.
+#   * actifpTM uses TM-score(d0 from full complex length) * binary CB contact,
+#     and takes the max over residues and both directions.
+
+
+def _transform_pae_matrix_lis(pae: np.ndarray, pae_cutoff: float) -> np.ndarray:
+    """Transform PAE to per-residue-pair confidence in [0, 1).
+
+    Returns 1 - PAE/cutoff where PAE < cutoff, else 0. Stays asymmetric.
+    """
+    pae = np.asarray(pae, dtype=np.float64)
+    transformed = np.zeros_like(pae)
+    mask = pae < pae_cutoff
+    transformed[mask] = 1.0 - pae[mask] / pae_cutoff
+    return transformed
+
+
+def _compute_lis_contact_map(
+    distances: np.ndarray,
+    residue_types: np.ndarray,
+    cb_cutoff: float,
+) -> np.ndarray:
+    """Binary residue-residue contact map (Cβ–Cβ, with +4Å reach for nucleic acids).
+
+    AFM-LIS uses ``distance - 4Å`` for residue pairs that include a P atom
+    (i.e. nucleic-acid residues whose pseudo-Cβ is C3'); the equivalent here is
+    extending the cutoff by 4Å whenever either residue is a nucleic acid.
+    """
+    is_nuc = np.array([r in NUC_RESIDUE_SET for r in residue_types])
+    p_mask = is_nuc[:, None] | is_nuc[None, :]
+    effective_cutoff = np.where(p_mask, cb_cutoff + 4.0, cb_cutoff)
+    return (distances < effective_cutoff).astype(np.uint8)
+
+
+def _calc_actifptm_pair(
+    pae: np.ndarray,
+    contact: np.ndarray,
+    si: int,
+    ei: int,
+    sj: int,
+    ej: int,
+) -> float:
+    """Approximate actifpTM (Varga & Ovchinnikov 2025) for a chain pair.
+
+    Per-residue weighted TM-score with binary CB contact as the weight, where
+    d0 is derived from the full-complex length. Returns the max per-residue
+    score across both interfacial directions (A→B and B→A).
+    """
+    n_total = int(pae.shape[0])
+    clipped = max(n_total, 19)
+    d0 = 1.24 * (clipped - 15) ** (1.0 / 3.0) - 1.8
+    d0sq = d0 * d0
+
+    def _one_direction(r0: int, r1: int, s0: int, s1: int) -> float:
+        if r1 <= r0 or s1 <= s0:
+            return 0.0
+        contact_block = contact[r0:r1, s0:s1]
+        weight_sums = contact_block.sum(axis=1)
+        has_contact = weight_sums > 0
+        if not has_contact.any():
+            return 0.0
+        pae_block = pae[r0:r1, s0:s1].astype(np.float64)
+        tm_vals = np.where(
+            contact_block.astype(bool),
+            1.0 / (1.0 + (pae_block * pae_block) / d0sq),
+            0.0,
+        )
+        scores = tm_vals[has_contact].sum(axis=1) / weight_sums[has_contact]
+        return float(scores.max())
+
+    return max(_one_direction(si, ei, sj, ej), _one_direction(sj, ej, si, ei))
+
+
+def compute_lis_metrics(
+    unique_chains: np.ndarray,
+    chains: np.ndarray,
+    residues: list[dict],
+    pae_matrix: np.ndarray,
+    distances: np.ndarray,
+    pae_cutoff_lis: float = 12.0,
+    cb_cutoff_lis: float = 8.0,
+) -> dict[str, dict]:
+    """Compute LIS-family metrics for every (chain_a, chain_b) pair with a<b.
+
+    Returns: ``{"A-B": {"LIS": ..., "cLIS": ..., "LIA": ..., "cLIA": ...,
+    "iLIS": ..., "iLIA": ..., "iLISA": ..., "actifpTM": ...}, ...}``
+    """
+    transformed = _transform_pae_matrix_lis(pae_matrix, pae_cutoff_lis)
+    residue_types = np.array([r["res"] for r in residues])
+    contact = _compute_lis_contact_map(distances, residue_types, cb_cutoff_lis)
+
+    # Contiguous chain ranges (parse_structure preserves chain order)
+    chain_ranges: dict[str, tuple[int, int]] = {}
+    for c in unique_chains:
+        idxs = np.where(chains == c)[0]
+        if idxs.size > 0:
+            chain_ranges[str(c)] = (int(idxs[0]), int(idxs[-1]) + 1)
+
+    asym_lis: dict[str, dict[str, float]] = {}
+    asym_clis: dict[str, dict[str, float]] = {}
+    asym_lia: dict[str, dict[str, int]] = {}
+    asym_clia: dict[str, dict[str, int]] = {}
+    asym_actifptm: dict[str, dict[str, float]] = {}
+    for c in unique_chains:
+        key = str(c)
+        asym_lis[key] = {}
+        asym_clis[key] = {}
+        asym_lia[key] = {}
+        asym_clia[key] = {}
+        asym_actifptm[key] = {}
+
+    for c1 in unique_chains:
+        c1s = str(c1)
+        if c1s not in chain_ranges:
+            continue
+        for c2 in unique_chains:
+            c2s = str(c2)
+            if c1s == c2s or c2s not in chain_ranges:
+                continue
+            si, ei = chain_ranges[c1s]
+            sj, ej = chain_ranges[c2s]
+
+            t_block = transformed[si:ei, sj:ej]
+            t_pos = t_block > 0
+            lis_count = int(t_pos.sum())
+            asym_lis[c1s][c2s] = (
+                float(t_block[t_pos].sum()) / lis_count if lis_count > 0 else 0.0
+            )
+
+            contact_block = contact[si:ei, sj:ej].astype(bool)
+            ct_pos = t_pos & contact_block
+            clis_count = int(ct_pos.sum())
+            asym_clis[c1s][c2s] = (
+                float(t_block[ct_pos].sum()) / clis_count if clis_count > 0 else 0.0
+            )
+
+            pae_block = pae_matrix[si:ei, sj:ej]
+            asym_lia[c1s][c2s] = int((pae_block < pae_cutoff_lis).sum())
+            asym_clia[c1s][c2s] = int(
+                ((pae_block < pae_cutoff_lis) & contact_block).sum()
+            )
+
+            asym_actifptm[c1s][c2s] = _calc_actifptm_pair(
+                pae_matrix, contact, si, ei, sj, ej
+            )
+
+    pair_metrics: dict[str, dict] = {}
+    chain_list = [str(c) for c in unique_chains]
+    for i, c1 in enumerate(chain_list):
+        for c2 in chain_list[i + 1 :]:
+            if c1 not in chain_ranges or c2 not in chain_ranges:
+                continue
+            lis = (asym_lis[c1][c2] + asym_lis[c2][c1]) / 2.0
+            clis = (asym_clis[c1][c2] + asym_clis[c2][c1]) / 2.0
+            lia = asym_lia[c1][c2] + asym_lia[c2][c1]
+            clia = asym_clia[c1][c2] + asym_clia[c2][c1]
+            ilis = math.sqrt(lis * clis)
+            ilia = math.sqrt(lia * clia)
+            ilisa = ilis * ilia
+            actifptm = max(asym_actifptm[c1][c2], asym_actifptm[c2][c1])
+
+            pair_metrics[f"{c1}-{c2}"] = {
+                "LIS": round(lis, 4),
+                "cLIS": round(clis, 4),
+                "LIA": int(lia),
+                "cLIA": int(clia),
+                "iLIS": round(ilis, 4),
+                "iLIA": round(ilia, 1),
+                "iLISA": round(ilisa, 1),
+                "actifpTM": round(actifptm, 4),
+            }
+
+    return pair_metrics
 
 
 def compute_ipsae(
@@ -1062,6 +1251,9 @@ def scores_to_json(
     iptm_per_pair: dict,
     pae_cutoff: float,
     dist_cutoff: float,
+    lis_metrics: dict[str, dict] | None = None,
+    lis_pae_cutoff: float | None = None,
+    lis_cb_cutoff: float | None = None,
 ) -> dict:
     """Build JSON-serialisable dict from computed scores."""
     model_name = Path(model_stem).name
@@ -1198,15 +1390,26 @@ def scores_to_json(
             dist2_min,
         )
 
-        pair_data[pair] = {"asym": asym_records, "max": max_record, "min": min_record}
-
-    return {
-        model_name: {
-            "pae_cutoff": int(pae_cutoff),
-            "dist_cutoff": int(dist_cutoff),
-            **pair_data,
+        entry: dict = {
+            "asym": asym_records,
+            "max": max_record,
+            "min": min_record,
         }
+        if lis_metrics is not None and pair in lis_metrics:
+            entry["lis_metrics"] = lis_metrics[pair]
+        pair_data[pair] = entry
+
+    header: dict = {
+        "pae_cutoff": int(pae_cutoff),
+        "dist_cutoff": int(dist_cutoff),
     }
+    if lis_metrics is not None:
+        header["lis_pae_cutoff"] = (
+            int(lis_pae_cutoff) if lis_pae_cutoff is not None else 12
+        )
+        header["lis_cb_cutoff"] = int(lis_cb_cutoff) if lis_cb_cutoff is not None else 8
+
+    return {model_name: {**header, **pair_data}}
 
 
 def write_json(
@@ -1220,6 +1423,9 @@ def write_json(
     iptm_per_pair: dict,
     pae_cutoff: float,
     dist_cutoff: float,
+    lis_metrics: dict[str, dict] | None = None,
+    lis_pae_cutoff: float | None = None,
+    lis_cb_cutoff: float | None = None,
 ) -> None:
     data = scores_to_json(
         model_stem,
@@ -1231,6 +1437,9 @@ def write_json(
         iptm_per_pair,
         pae_cutoff,
         dist_cutoff,
+        lis_metrics=lis_metrics,
+        lis_pae_cutoff=lis_pae_cutoff,
+        lis_cb_cutoff=lis_cb_cutoff,
     )
     with open(json_path, "w") as fh:
         json.dump(data, fh, indent=2)
@@ -1636,6 +1845,8 @@ def run_ipsae(
     dist_cutoff: float,
     output_json: bool = False,
     model_name: str | None = None,
+    lis_pae_cutoff: float = 12.0,
+    lis_cb_cutoff: float = 8.0,
 ) -> dict[str, Path]:
     """Calculate ipSAE and related scores.
 
@@ -1649,6 +1860,9 @@ def run_ipsae(
         output_json: If True, write JSON instead of txt summary.
         model_name: Top-level key used in JSON output. Defaults to the struct
             file stem when None.
+        lis_pae_cutoff: PAE cutoff used for the LIS-family metrics (default 12).
+        lis_cb_cutoff: Cβ contact cutoff (Å) for the LIS-family metrics
+            (default 8).
 
     Returns:
         Dict with keys "txt"/"json", "byres", "pml" pointing to the written files.
@@ -1742,6 +1956,15 @@ def run_ipsae(
         pae_cutoff,
         dist_cutoff,
     )
+    lis_metrics = compute_lis_metrics(
+        unique_chains,
+        chains,
+        residues,
+        pae_matrix,
+        distances,
+        pae_cutoff_lis=lis_pae_cutoff,
+        cb_cutoff_lis=lis_cb_cutoff,
+    )
 
     write_byres(byres_path, unique_chains, chains, residues, plddt, scores)
     json_model_stem = model_name if model_name is not None else str(stem)
@@ -1757,6 +1980,9 @@ def run_ipsae(
             iptm_per_pair,
             pae_cutoff,
             dist_cutoff,
+            lis_metrics=lis_metrics,
+            lis_pae_cutoff=lis_pae_cutoff,
+            lis_cb_cutoff=lis_cb_cutoff,
         )
         write_pml(
             pml_path,
@@ -1819,6 +2045,18 @@ def main() -> None:
         default=10.0,
     )
     parser.add_argument(
+        "--lis_pae_cutoff",
+        type=float,
+        default=12.0,
+        help="PAE cutoff (Å) for LIS-family metrics (LIS/cLIS/iLIS/LIA/cLIA/iLIA/iLISA/actifpTM). Default: 12",
+    )
+    parser.add_argument(
+        "--lis_cb_cutoff",
+        type=float,
+        default=8.0,
+        help="Cβ distance cutoff (Å) for LIS-family metrics. Default: 8",
+    )
+    parser.add_argument(
         "--json",
         action="store_true",
         help="Output JSON instead of txt summary",
@@ -1847,6 +2085,8 @@ def main() -> None:
                     args.dist_cutoff,
                     output_json=args.json,
                     model_name=prefix,
+                    lis_pae_cutoff=args.lis_pae_cutoff,
+                    lis_cb_cutoff=args.lis_cb_cutoff,
                 )
                 for path in paths.values():
                     logger.debug(f"Written: {path}")
@@ -1868,6 +2108,8 @@ def main() -> None:
         args.dist_cutoff,
         output_json=args.json,
         model_name=model_name,
+        lis_pae_cutoff=args.lis_pae_cutoff,
+        lis_cb_cutoff=args.lis_cb_cutoff,
     )
     for path in paths.values():
         logger.debug(f"Written: {path}")

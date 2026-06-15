@@ -1,4 +1,4 @@
-"""Tests for alphafold3tools.ipsae module.
+"""Tests for alphafold3tools.metrics module.
 
 Compares run_ipsae output against reference .orig files.
 The last column (model path) is excluded from comparison because it depends
@@ -14,7 +14,12 @@ from pathlib import Path
 
 import pytest
 
-from alphafold3tools.ipsae import find_colabfold_inputs, find_inputs, run_ipsae
+from alphafold3tools.metrics import (
+    compute_lis_metrics,
+    find_colabfold_inputs,
+    find_inputs,
+    run_ipsae,
+)
 
 TESTDATA = Path(__file__).parent.parent / "testfiles" / "ipsae"
 AF2_DIR = TESTDATA / "af2"
@@ -426,3 +431,163 @@ class TestBatchCFJson:
         for prefix, paths in cf_batch_json_paths.items():
             data = json.loads(paths["json"].read_text())
             assert prefix in data
+
+
+# ── LIS-family metrics (AFM-LIS) ──────────────────────────────────────────────
+
+# Expected values produced by AFM-LIS lis.py on the same testfiles, with the
+# default pae_cutoff_lis=12 and cb_cutoff_lis=8.
+AF2_LIS_EXPECTED: dict[str, dict[str, float]] = {
+    "A-B": {
+        "LIS": 0.3544, "cLIS": 0.7520, "LIA": 104873, "cLIA": 89,
+        "iLIS": 0.5162, "iLIA": 3055.1, "iLISA": 1577.2, "actifpTM": 0.9772,
+    },
+    "A-C": {
+        "LIS": 0.3146, "cLIS": 0.5817, "LIA": 128811, "cLIA": 202,
+        "iLIS": 0.4278, "iLIA": 5101.0, "iLISA": 2182.1, "actifpTM": 0.9722,
+    },
+    "B-C": {
+        "LIS": 0.1008, "cLIS": 0.0, "LIA": 15876, "cLIA": 0,
+        "iLIS": 0.0, "iLIA": 0.0, "iLISA": 0.0, "actifpTM": 0.1924,
+    },
+}
+
+AF3_LIS_EXPECTED: dict[str, dict[str, float]] = {
+    "A-B": {
+        "LIS": 0.5054, "cLIS": 0.7257, "LIA": 134389, "cLIA": 242,
+        "iLIS": 0.6056, "iLIA": 5702.8, "iLISA": 3453.6, "actifpTM": 0.9798,
+    },
+}
+
+
+def _lis_metrics_from_json(json_path: Path) -> dict[str, dict]:
+    """Return ``{"A-B": {...}, ...}`` from the lis_metrics blocks in a JSON file."""
+    data = json.loads(json_path.read_text())
+    model = next(iter(data.values()))
+    return {k: v["lis_metrics"] for k, v in model.items() if isinstance(v, dict)}
+
+
+def _assert_lis_close(actual: dict, expected: dict, rtol: float = 1e-3) -> None:
+    """Compare LIS metrics within tolerance (counts must be exact)."""
+    for key, exp in expected.items():
+        got = actual[key]
+        assert got["LIA"] == exp["LIA"], f"LIA mismatch for {key}"
+        assert got["cLIA"] == exp["cLIA"], f"cLIA mismatch for {key}"
+        for metric in ("LIS", "cLIS", "iLIS", "iLIA", "iLISA", "actifpTM"):
+            assert abs(got[metric] - exp[metric]) <= max(rtol * abs(exp[metric]), 0.0011), (
+                f"{metric} mismatch for {key}: got {got[metric]}, expected {exp[metric]}"
+            )
+
+
+class TestLISMetricsAF2:
+    def test_matches_afm_lis_baseline(self, af2_json_paths):
+        actual = _lis_metrics_from_json(af2_json_paths["json"])
+        _assert_lis_close(actual, AF2_LIS_EXPECTED)
+
+
+class TestLISMetricsAF3:
+    def test_matches_afm_lis_baseline(self, af3_json_paths):
+        actual = _lis_metrics_from_json(af3_json_paths["json"])
+        _assert_lis_close(actual, AF3_LIS_EXPECTED)
+
+
+class TestLISMetricsHeaderInJson:
+    def test_default_cutoffs_in_header(self, af2_json_paths):
+        data = json.loads(af2_json_paths["json"].read_text())
+        model = next(iter(data.values()))
+        assert model["lis_pae_cutoff"] == 12
+        assert model["lis_cb_cutoff"] == 8
+
+
+class TestLISMetricsCustomCutoffs:
+    """Verify --lis_pae_cutoff/--lis_cb_cutoff actually change the metric values."""
+
+    def test_pae_cutoff_8_gives_different_lis(self, tmp_path, af2_struct):
+        dst = tmp_path / af2_struct.name
+        shutil.copy(af2_struct, dst)
+        paths = run_ipsae(
+            AF2_PAE,
+            dst,
+            pae_cutoff=15,
+            dist_cutoff=15,
+            output_json=True,
+            lis_pae_cutoff=8.0,
+        )
+        data = json.loads(paths["json"].read_text())
+        model = next(iter(data.values()))
+        assert model["lis_pae_cutoff"] == 8
+        # Tightening the PAE cutoff should never increase LIA counts
+        ab = model["A-B"]["lis_metrics"]
+        assert ab["LIA"] < AF2_LIS_EXPECTED["A-B"]["LIA"]
+
+    def test_cb_cutoff_change_propagates(self, tmp_path, af2_struct):
+        dst = tmp_path / af2_struct.name
+        shutil.copy(af2_struct, dst)
+        paths = run_ipsae(
+            AF2_PAE,
+            dst,
+            pae_cutoff=15,
+            dist_cutoff=15,
+            output_json=True,
+            lis_cb_cutoff=4.0,
+        )
+        data = json.loads(paths["json"].read_text())
+        model = next(iter(data.values()))
+        assert model["lis_cb_cutoff"] == 4
+        ab = model["A-B"]["lis_metrics"]
+        # Smaller contact cutoff should reduce cLIA
+        assert ab["cLIA"] <= AF2_LIS_EXPECTED["A-B"]["cLIA"]
+
+
+class TestComputeLISMetricsUnit:
+    def test_internal_relations_hold(self):
+        import numpy as np
+
+        rng = np.random.default_rng(42)
+        chains = np.array(["A"] * 6 + ["B"] * 6)
+        unique_chains = np.array(["A", "B"])
+        residues = [
+            {"res": "ALA", "chainid": c, "resnum": i + 1,
+             "residue": f"ALA {c} {i + 1}"}
+            for i, c in enumerate(chains)
+        ]
+        pae = rng.uniform(2, 18, (12, 12)).astype(np.float64)
+        dist = np.full((12, 12), 30.0)
+        np.fill_diagonal(dist, 0.0)
+        dist[0:3, 6:9] = 5.0
+        dist[6:9, 0:3] = 5.0
+
+        m = compute_lis_metrics(unique_chains, chains, residues, pae, dist)
+        pair = m["A-B"]
+        assert pair["iLIS"] == pytest.approx(
+            (pair["LIS"] * pair["cLIS"]) ** 0.5, abs=5e-4
+        )
+        assert pair["iLIA"] == pytest.approx(
+            (pair["LIA"] * pair["cLIA"]) ** 0.5, abs=0.05
+        )
+        assert pair["iLISA"] == pytest.approx(
+            pair["iLIS"] * pair["iLIA"], abs=0.1
+        )
+        assert 0.0 <= pair["actifpTM"] <= 1.0
+
+    def test_no_contacts_yields_zero_clis(self):
+        import numpy as np
+
+        chains = np.array(["A"] * 4 + ["B"] * 4)
+        unique_chains = np.array(["A", "B"])
+        residues = [
+            {"res": "ALA", "chainid": c, "resnum": i + 1,
+             "residue": f"ALA {c} {i + 1}"}
+            for i, c in enumerate(chains)
+        ]
+        pae = np.full((8, 8), 5.0)
+        dist = np.full((8, 8), 100.0)
+        np.fill_diagonal(dist, 0.0)
+
+        m = compute_lis_metrics(unique_chains, chains, residues, pae, dist)
+        pair = m["A-B"]
+        assert pair["cLIS"] == 0.0
+        assert pair["cLIA"] == 0
+        assert pair["iLIS"] == 0.0
+        assert pair["iLIA"] == 0.0
+        assert pair["iLISA"] == 0.0

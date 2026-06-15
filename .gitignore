@@ -20,3 +20,4 @@ wheels/
 .claude
 # data dir
 data/
+CLAUDE.md
