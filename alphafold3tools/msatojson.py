@@ -130,7 +130,7 @@ def get_paired_and_unpaired_msa(
             ):
                 pairedflag = True
                 unpairedflag = False
-            elif any(line.startswith(f">{seq}\n") for seq in query_seqnames):
+            elif any(line.startswith(f">{seq}\n") for seq in query_seqnames) or line == ">query\n":
                 pairedflag = False
                 unpairedflag = True
                 chain += 1

@@ -101,10 +101,55 @@ class TestHomomerMSA:
 
 
 @pytest.fixture
+def setup_query_header_a3m():
+    with open("./testfiles/Q9I1F6-F1-msa_v6.a3m", "r") as f:
+        lines = f.readlines()
+    yield lines
+
+
+@pytest.fixture
 def setup_noheader_a3m():
     with open("./testfiles/1bjp_no_header.a3m", "r") as f:
         lines = f.readlines()
     yield lines
+
+
+class TestQueryHeaderMSA:
+    """a3m files whose first sequence header is '>query' (e.g. MMseqs2 web server output)
+    must be treated as unpaired-only MSA, identical to the '>101' code path."""
+
+    def test_get_paired_and_unpaired_msa(self, setup_query_header_a3m):
+        residue_lens, stoichiometries = get_residuelens_stoichiometries(
+            lines=setup_query_header_a3m
+        )
+        assert stoichiometries == [1]
+        pairedmsas, unpairedmsas = get_paired_and_unpaired_msa(
+            lines=setup_query_header_a3m, residue_lens=residue_lens, cardinality=1
+        )
+        assert pairedmsas == [[]]
+        assert len(unpairedmsas) == 1
+        assert len(unpairedmsas[0]) == 6
+        assert unpairedmsas[0][0].name == ">query\n"
+
+    def test_generate_json_has_unpaired_msa(self, setup_query_header_a3m):
+        residue_lens, stoichiometries = get_residuelens_stoichiometries(
+            lines=setup_query_header_a3m
+        )
+        pairedmsas, unpairedmsas = get_paired_and_unpaired_msa(
+            lines=setup_query_header_a3m, residue_lens=residue_lens, cardinality=1
+        )
+        content = generate_input_json_content(
+            name="Q9I1F6",
+            cardinality=1,
+            stoichiometries=stoichiometries,
+            pairedmsas=pairedmsas,
+            unpairedmsas=unpairedmsas,
+            includetemplates=False,
+        )
+        prot = content["sequences"][0]["protein"]
+        assert prot["pairedMsa"] == ""
+        assert prot["unpairedMsa"].startswith(">query\n")
+        assert prot["unpairedMsa"].count(">") == 6
 
 
 class TestNoHeaderMSA:
