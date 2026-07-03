@@ -1185,7 +1185,7 @@ def run_hmmsearch_with_a3m(
     max_a3m_query_sequences: int | None,
     a3m: str,
     savehmmsto: bool = False,
-    ncpus: int = 8,
+    ncpus: int = 4,
 ) -> str:
     """Runs Hmmsearch to get a3m string of hits."""
     # STO enables us to annotate query non-gap columns as reference columns.
@@ -1226,11 +1226,7 @@ def run_hmmsearch_with_a3m(
                 "Please install HMMER and ensure "
                 "hmmsearch is in your PATH."
             )
-        if savehmmsto:
-            currentworkingdir = os.getcwd()
-            hmmsearch_sto_path = os.path.join(currentworkingdir, "hmmsearch.sto")
-        else:
-            hmmsearch_sto_path = os.path.join(tmpdir, "hmmsearch.sto")
+        hmmsearch_sto_path = os.path.join(tmpdir, "hmmsearch.sto")
         hmmsearch_cmd = [
             hmmsearch_binary_path,
             "--noali",
@@ -1261,6 +1257,8 @@ def run_hmmsearch_with_a3m(
             hmmsearch_a3m = convert_stockholm_to_a3m(
                 stockholm=f, remove_first_row_gaps=False, linewidth=60
             )
+        if savehmmsto:
+            shutil.copy(hmmsearch_sto_path, os.path.join(os.getcwd(), "hmmsearch.sto"))
 
     return hmmsearch_a3m
 
