@@ -1,8 +1,10 @@
 import json
+from pathlib import Path
 
 import pytest
 
 from alphafold3tools.msatojson import (
+    convert_msas_to_str,
     generate_input_json_content,
     get_paired_and_unpaired_msa,
     get_residuelens_stoichiometries,
@@ -169,3 +171,101 @@ class TestNoHeaderMSA:
         assert unpairedmsas[0][1].sequence.startswith(
             "PVVTIELWEGRTPEQKRELVRAVSSAISRVLGCPEEAVHVILHEVPKANWGIGGRLASEL--"
         )
+
+
+class TestWriteMsaPath:
+    """Tests for --write_msapath: MSA content is written to separate .a3m files
+    and JSON uses unpairedMsaPath/pairedMsaPath keys instead of inline content."""
+
+    def test_single_chain_uses_original_path(self, setup_homomer_lines, tmp_path):
+        """Single-chain a3m (no paired MSA): unpairedMsaPath must equal the
+        original input file path; pairedMsaPath must be empty string."""
+        residue_lens, stoichiometries = get_residuelens_stoichiometries(
+            lines=setup_homomer_lines
+        )
+        pairedmsas, unpairedmsas = get_paired_and_unpaired_msa(
+            lines=setup_homomer_lines, residue_lens=residue_lens, cardinality=1
+        )
+        inputmsafile = Path("./testfiles/1bjp_6.a3m")
+        content = generate_input_json_content(
+            name="1bjp_6",
+            cardinality=1,
+            stoichiometries=stoichiometries,
+            pairedmsas=pairedmsas,
+            unpairedmsas=unpairedmsas,
+            includetemplates=False,
+            write_msapath=True,
+            inputmsafile=inputmsafile,
+            msa_output_dir=tmp_path,
+        )
+        prot = content["sequences"][0]["protein"]
+        assert prot["unpairedMsaPath"] == str(inputmsafile)
+        assert prot["pairedMsaPath"] == ""
+        assert "unpairedMsa" not in prot
+        assert "pairedMsa" not in prot
+
+    def test_multi_chain_writes_msa_files(self, setup_lines, tmp_path):
+        """Multi-chain a3m (paired MSA present): new .a3m files are written to
+        msa_output_dir and JSON references them via *MsaPath keys."""
+        residue_lens, stoichiometries = get_residuelens_stoichiometries(
+            lines=setup_lines
+        )
+        cardinality = len(residue_lens)
+        pairedmsas, unpairedmsas = get_paired_and_unpaired_msa(
+            setup_lines, residue_lens, cardinality
+        )
+        content = generate_input_json_content(
+            name="testcomplexseqs",
+            cardinality=cardinality,
+            stoichiometries=stoichiometries,
+            pairedmsas=pairedmsas,
+            unpairedmsas=unpairedmsas,
+            includetemplates=False,
+            write_msapath=True,
+            inputmsafile=Path("./testfiles/testcomplexseqs.a3m"),
+            msa_output_dir=tmp_path,
+        )
+        # chain 0 (stoichiometry 2, ids A/B) → suffix "A"
+        prot0 = content["sequences"][0]["protein"]
+        assert "unpairedMsa" not in prot0
+        assert "pairedMsa" not in prot0
+        unpaired0 = Path(prot0["unpairedMsaPath"])
+        paired0 = Path(prot0["pairedMsaPath"])
+        assert unpaired0.name == "testcomplexseqs_unpaired_A.a3m"
+        assert paired0.name == "testcomplexseqs_paired_A.a3m"
+        assert unpaired0.exists()
+        assert paired0.exists()
+        # chain 1 (stoichiometry 3, ids C/D/E) → suffix "C"
+        prot1 = content["sequences"][1]["protein"]
+        unpaired1 = Path(prot1["unpairedMsaPath"])
+        paired1 = Path(prot1["pairedMsaPath"])
+        assert unpaired1.name == "testcomplexseqs_unpaired_C.a3m"
+        assert paired1.name == "testcomplexseqs_paired_C.a3m"
+        assert unpaired1.exists()
+        assert paired1.exists()
+
+    def test_written_files_contain_correct_content(self, setup_lines, tmp_path):
+        """Content of written .a3m files must match convert_msas_to_str output."""
+        residue_lens, stoichiometries = get_residuelens_stoichiometries(
+            lines=setup_lines
+        )
+        cardinality = len(residue_lens)
+        pairedmsas, unpairedmsas = get_paired_and_unpaired_msa(
+            setup_lines, residue_lens, cardinality
+        )
+        generate_input_json_content(
+            name="testcomplexseqs",
+            cardinality=cardinality,
+            stoichiometries=stoichiometries,
+            pairedmsas=pairedmsas,
+            unpairedmsas=unpairedmsas,
+            includetemplates=False,
+            write_msapath=True,
+            inputmsafile=Path("./testfiles/testcomplexseqs.a3m"),
+            msa_output_dir=tmp_path,
+        )
+        for i, chain_letter in enumerate(["A", "C"]):
+            unpaired_file = tmp_path / f"testcomplexseqs_unpaired_{chain_letter}.a3m"
+            paired_file = tmp_path / f"testcomplexseqs_paired_{chain_letter}.a3m"
+            assert unpaired_file.read_text() == convert_msas_to_str(unpairedmsas[i])
+            assert paired_file.read_text() == convert_msas_to_str(pairedmsas[i])

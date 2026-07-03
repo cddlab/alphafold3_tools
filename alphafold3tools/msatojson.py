@@ -130,7 +130,10 @@ def get_paired_and_unpaired_msa(
             ):
                 pairedflag = True
                 unpairedflag = False
-            elif any(line.startswith(f">{seq}\n") for seq in query_seqnames) or line == ">query\n":
+            elif (
+                any(line.startswith(f">{seq}\n") for seq in query_seqnames)
+                or line == ">query\n"
+            ):
                 pairedflag = False
                 unpairedflag = True
                 chain += 1
@@ -178,6 +181,9 @@ def generate_input_json_content(
     max_subsequence_ratio: float | None = 0.95,
     hmmbuild_binary_path: str | None = shutil.which("hmmbuild"),
     hmmsearch_binary_path: str | None = shutil.which("hmmsearch"),
+    write_msapath: bool = False,
+    inputmsafile: str | Path | None = None,
+    msa_output_dir: Path | None = None,
 ) -> dict[str, Any]:
     """generate AlphaFold3 input JSON file.
 
@@ -197,6 +203,12 @@ def generate_input_json_content(
             This is to avoid ground truth leakage from templates which are almost the same as the query.
         hmmbuild_binary_path (str): Path to the hmmbuild binary.
         hmmsearch_binary_path (str): Path to the hmmsearch binary.
+        write_msapath (bool): If True, write MSA content to separate .a3m files and use
+            unpairedMsaPath/pairedMsaPath keys instead of unpairedMsa/pairedMsa.
+        inputmsafile (str | Path | None): Original input a3m file path. Used as
+            unpairedMsaPath when no paired MSA exists (single-chain case).
+        msa_output_dir (Path | None): Directory to write MSA .a3m files when paired
+            MSA exists. Required when write_msapath=True and paired MSA is present.
     Returns:
         str: JSON string for AlphaFold3 input file.
     """
@@ -226,14 +238,40 @@ def generate_input_json_content(
             )
         else:
             templates_list = []
+        has_paired = bool(pairedmsas[i])
+        if write_msapath:
+            if inputmsafile is None:
+                raise ValueError("inputmsafile is required when write_msapath=True.")
+            if not has_paired:
+                msa_entry: dict[str, str] = {
+                    "unpairedMsaPath": str(inputmsafile),
+                    "pairedMsaPath": "",
+                }
+            else:
+                if msa_output_dir is None:
+                    raise ValueError(
+                        "msa_output_dir is required when write_msapath=True and paired MSA exists."
+                    )
+                unpaired_path = msa_output_dir / f"{name}_unpaired_{chain_ids[0]}.a3m"
+                paired_path = msa_output_dir / f"{name}_paired_{chain_ids[0]}.a3m"
+                unpaired_path.write_text(convert_msas_to_str(unpairedmsas[i]))
+                paired_path.write_text(convert_msas_to_str(pairedmsas[i]))
+                msa_entry = {
+                    "unpairedMsaPath": str(unpaired_path.resolve()),
+                    "pairedMsaPath": str(paired_path.resolve()),
+                }
+        else:
+            msa_entry = {
+                "unpairedMsa": convert_msas_to_str(unpairedmsas[i]),
+                "pairedMsa": convert_msas_to_str(pairedmsas[i]),
+            }
         sequences.append(
             {
                 "protein": {
                     "id": chain_ids,
                     "sequence": query_seq,
                     "modifications": [],
-                    "unpairedMsa": convert_msas_to_str(unpairedmsas[i]),
-                    "pairedMsa": convert_msas_to_str(pairedmsas[i]),
+                    **msa_entry,
                     "templates": templates_list,
                 }
             }
@@ -262,6 +300,7 @@ def write_input_json_file(
     max_subsequence_ratio: float | None = 0.95,
     hmmbuild_binary_path: str | None = shutil.which("hmmbuild"),
     hmmsearch_binary_path: str | None = shutil.which("hmmsearch"),
+    write_msapath: bool = False,
 ) -> None:
     """Write AlphaFold3 input JSON file from a3m-format MSA file.
 
@@ -306,6 +345,9 @@ def write_input_json_file(
         max_subsequence_ratio=max_subsequence_ratio,
         hmmbuild_binary_path=hmmbuild_binary_path,
         hmmsearch_binary_path=hmmsearch_binary_path,
+        write_msapath=write_msapath,
+        inputmsafile=inputmsafile,
+        msa_output_dir=Path(outputjsonfile).parent,
     )
     with open(outputjsonfile, "w") as f:
         f.write(to_json(content))
@@ -322,6 +364,7 @@ def _process_a3m_file(
     max_subsequence_ratio: float | None,
     hmmbuild_binary_path: str | None,
     hmmsearch_binary_path: str | None,
+    write_msapath: bool,
 ) -> None:
     """Process a single A3M file and write the output JSON file."""
     name = Path(a3m_file).stem
@@ -338,6 +381,7 @@ def _process_a3m_file(
         max_subsequence_ratio=max_subsequence_ratio,
         hmmbuild_binary_path=hmmbuild_binary_path,
         hmmsearch_binary_path=hmmsearch_binary_path,
+        write_msapath=write_msapath,
     )
 
 
@@ -352,6 +396,7 @@ def process_a3m_directory(
     max_subsequence_ratio: float | None,
     hmmbuild_binary_path: str | None,
     hmmsearch_binary_path: str | None,
+    write_msapath: bool = False,
 ) -> None:
     """Process all A3M files in a directory.
 
@@ -366,7 +411,14 @@ def process_a3m_directory(
     logger.info(f"Output directory: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
     a3m_files = list(input_dir.glob("*.a3m"))
-    with concurrent.futures.ThreadPoolExecutor() as executor:
+    # When templates are searched, each hmmsearch subprocess uses --cpu 8 by
+    # default. Cap workers so total CPU demand stays within the physical core
+    # count. Without templates, use the default (I/O-bound MSA parsing).
+    if includetemplates:
+        max_workers = max(1, (os.cpu_count() or 1) // 4)
+    else:
+        max_workers = None
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = [
             executor.submit(
                 _process_a3m_file,
@@ -380,6 +432,7 @@ def process_a3m_directory(
                 max_subsequence_ratio,
                 hmmbuild_binary_path,
                 hmmsearch_binary_path,
+                write_msapath,
             )
             for a3m_file in a3m_files
         ]
@@ -397,6 +450,7 @@ def process_single_a3m_file(
     max_subsequence_ratio: float | None = 0.95,
     hmmbuild_binary_path: str | None = shutil.which("hmmbuild"),
     hmmsearch_binary_path: str | None = shutil.which("hmmsearch"),
+    write_msapath: bool = False,
 ) -> None:
     """Process a single A3M file.
 
@@ -423,6 +477,7 @@ def process_single_a3m_file(
         max_subsequence_ratio=max_subsequence_ratio,
         hmmbuild_binary_path=hmmbuild_binary_path,
         hmmsearch_binary_path=hmmsearch_binary_path,
+        write_msapath=write_msapath,
     )
 
 
@@ -523,6 +578,13 @@ def main():
         type=str,
         default=shutil.which("hmmsearch"),
     )
+    parser.add_argument(
+        "--write_msapath",
+        help="Write MSA content to separate .a3m files and reference them via "
+        "unpairedMsaPath/pairedMsaPath keys instead of embedding MSA inline.",
+        action="store_true",
+        default=False,
+    )
     args = parser.parse_args()
     log_setup(args.loglevel)
     # Default name is the input file name without extension
@@ -551,6 +613,7 @@ def main():
             max_subsequence_ratio=args.max_subsequence_ratio,
             hmmbuild_binary_path=args.hmmbuild_binary_path,
             hmmsearch_binary_path=args.hmmsearch_binary_path,
+            write_msapath=args.write_msapath,
         )
     else:
         process_single_a3m_file(
@@ -564,6 +627,7 @@ def main():
             max_subsequence_ratio=args.max_subsequence_ratio,
             hmmbuild_binary_path=args.hmmbuild_binary_path,
             hmmsearch_binary_path=args.hmmsearch_binary_path,
+            write_msapath=args.write_msapath,
         )
 
 
