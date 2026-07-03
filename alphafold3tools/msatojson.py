@@ -226,11 +226,15 @@ def generate_input_json_content(
             logger.info(
                 f"Searching templates for chain {i + 1} with sequence length {len(query_seq)}..."
             )
+            if savehmmsto and msa_output_dir is not None:
+                sto_path = msa_output_dir / f"{name}_{chain_ids[0]}.hmmsearch.sto"
+            else:
+                sto_path = None
             templates_list = search_templates(
                 msa_a3m_string=convert_msas_to_str(unpairedmsas[i]),
                 pdb_database_path=pdb_database_path,
                 seqres_database_path=seqres_database_path,
-                savehmmsto=savehmmsto,
+                hmmsearch_sto_output_path=sto_path,
                 max_template_date=max_template_date,
                 max_subsequence_ratio=max_subsequence_ratio,
                 hmmbuild_binary_path=hmmbuild_binary_path,

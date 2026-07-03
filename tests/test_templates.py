@@ -121,7 +121,7 @@ def test_templates_from_seq_and_a3m():
             max_a3m_query_sequences=None,
             structure_store=structure_stores.StructureStore(mmcif_dir),
             chain_poly_type=PROTEIN_CHAIN,
-            savehmmsto=False,
+            hmmsearch_sto_output_path=None,
         )
 
         # Basic assertions about the template hits
@@ -288,7 +288,7 @@ def test_2z9g_full_pipeline():
             max_a3m_query_sequences=None,
             structure_store=structure_stores.StructureStore(str(pdb_database_path)),
             chain_poly_type=PROTEIN_CHAIN,
-            savehmmsto=False,
+            hmmsearch_sto_output_path=None,
         )
 
         # Verify template hits object
@@ -383,7 +383,7 @@ def test_ras_full_pipeline():
             max_a3m_query_sequences=None,
             structure_store=structure_stores.StructureStore(str(pdb_database_path)),
             chain_poly_type=PROTEIN_CHAIN,
-            savehmmsto=False,
+            hmmsearch_sto_output_path=None,
         )
 
         # Verify template hits object
