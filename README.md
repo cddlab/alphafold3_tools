@@ -67,13 +67,13 @@ af3tools msatojson -i input.a3m -o output.json --write_msapath
 The behavior depends on whether the input a3m contains a paired MSA (i.e. multi-chain complex):
 
 | Input type | `unpairedMsaPath` | `pairedMsaPath` |
-|---|---|---|
+| --- | --- | --- |
 | Single-chain (no paired MSA) | Path to the original `-i` file (no new file written) | `""` |
 | Multi-chain (paired MSA present) | `{output_dir}/{name}_unpaired_{chain_id}.a3m` | `{output_dir}/{name}_paired_{chain_id}.a3m` |
 
 For example, processing a two-chain complex `testcomplex.a3m` with `-o /path/to/output/testcomplex.json` produces:
 
-```
+```shell
 /path/to/output/
   testcomplex.json                # JSON with unpairedMsaPath / pairedMsaPath
   testcomplex_unpaired_A.a3m     # unpaired MSA for chain A/B
@@ -120,6 +120,30 @@ af3tools msatojson -i input.a3m -o output.json \
 > - When processing a directory with `--include_templates`, each hmmsearch subprocess uses 4 CPU cores by default, and the number of parallel workers is automatically capped to `cpu_count ÷ 4` to avoid CPU oversubscription.
 > - The `pdb_seqres.txt` file can be downloaded from [wwPDB](https://files.rcsb.org/pub/pdb/derived_data/pdb_seqres.txt). The file size is about 356 MB (as of Dec. 2025).
 >
+
+#### Guessing the homo-oligomer count from templates (`--guess_copies`)
+
+By default, the number of copies of each protein chain in the output JSON (the length of the `id` list) is taken from the stoichiometry recorded in the a3m header. Use the `--guess_copies` option to instead infer the homo-oligomer count from the biological assembly of each chain's **first template**.
+
+For each protein sequence, `msatojson` looks up the first template hit (PDB ID + chain ID), reads that structure's biological assembly information from the mmCIF file, and counts how many copies of the same polymer entity it contains. That count becomes the number of chain IDs assigned to the sequence, **overriding** the a3m header stoichiometry. For example, if the first template of a chain is the homohexamer `1BJP`, that chain is assigned six IDs (`"id": ["A", "B", "C", "D", "E", "F"]`). When there are multiple protein sequences, the chain-ID letters are shifted so that IDs never overlap between sequences. If no template is found, or the structure has no usable biological assembly information, the count falls back to `1` (monomer).
+
+- `--guess_copies` performs a template search, so it **requires `--include_templates` and `--pdb_database_path`** (as well as `--seqres_database_path`); the command exits with an error if these are missing.
+
+```bash
+# Example command to guess the number of chain copies from templates
+af3tools msatojson -i input.a3m -o output.json \
+    --include_templates \
+    --pdb_database_path /path/to/mmcif_files \
+    --seqres_database_path /path/to/pdb_seqres.txt \
+    --max_template_date 2099-09-30 \
+    --guess_copies \
+    -d
+```
+
+> [!NOTE]
+>
+> - `--guess_copies` overrides the stoichiometry from the a3m header. If you want to keep the header stoichiometry, simply omit this option.
+> - The estimate is based purely on the first template's deposited biological assembly, which is the author's/software's assignment and may not reflect the true biological oligomeric state. Review the assigned copy count when it matters.
 
 ### fastatojson
 
@@ -395,7 +419,7 @@ af3tools metrics -i /path/to/af3_seed-1_sample-0 -pc 15 -dc 15
 af3tools metrics -i /path/to/af3_seed-1_sample-0 --json
 
 # Override LIS-family cutoffs (defaults match AFM-LIS: 12 / 8)
-af3tools metrics -i /path/to/af3_seed-1_sample-0 --json --lis_pae_cutoff 10 --lis_cb_cutoff 6
+af3tools metrics -i /path/to/af3_seed-1_sample-0 --json --lis_pae_cutoff 12 --lis_cb_cutoff 8
 
 # ColabFold batch with JSON output
 af3tools metrics -i /path/to/colabfold_output_dir --json

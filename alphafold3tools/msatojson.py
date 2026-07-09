@@ -691,6 +691,7 @@ def main():
         default=False,
     )
     parser.add_argument(
+        "--guess_copies",
         "--guess-copies",
         dest="guess_copies",
         help="Guess the homo-oligomer count of each protein chain from the "
@@ -703,9 +704,9 @@ def main():
     args = parser.parse_args()
     log_setup(args.loglevel)
     if args.guess_copies and not args.include_templates:
-        parser.error("--guess-copies requires --include_templates.")
+        parser.error("--guess_copies requires --include_templates.")
     if args.guess_copies and args.pdb_database_path is None:
-        parser.error("--guess-copies requires --pdb_database_path.")
+        parser.error("--guess_copies requires --pdb_database_path.")
     if args.include_templates:
         # Fail fast (before reading MSAs) if any template-search path is missing.
         validate_template_search_paths(
