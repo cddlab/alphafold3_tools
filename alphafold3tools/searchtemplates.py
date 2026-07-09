@@ -1278,7 +1278,7 @@ def _make_templates_list(templates: Sequence[Template]) -> list[dict[str, Any]]:
     return templates_list
 
 
-def search_templates(
+def search_templates_with_hits(
     msa_a3m_string: str,
     pdb_database_path: str | os.PathLike[str] | None = None,
     seqres_database_path: str | os.PathLike[str] | None = None,
@@ -1287,9 +1287,13 @@ def search_templates(
     max_subsequence_ratio: float | None = 0.95,
     hmmbuild_binary_path: str | None = shutil.which("hmmbuild"),
     hmmsearch_binary_path: str | None = shutil.which("hmmsearch"),
-) -> list[dict[str, Any]]:
-    """Searches for templates using hmmsearch given an a3m MSA.
-    The query sequence is extracted from the first line of the a3m.
+) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
+    """Searches for templates and also returns each hit's (PDB ID, chain ID).
+
+    Same as :func:`search_templates`, but additionally returns the ``(pdb_id,
+    auth_chain_id)`` of each hit in the same order as the returned templates.
+    The first element corresponds to the top-ranked template.
+
     Args:
         msa_a3m_string: An a3m string containing the MSA for the query sequence.
         pdb_database_path: Path to the pdb_seqres.txt database file.
@@ -1301,7 +1305,9 @@ def search_templates(
         hmmbuild_binary_path: Path to the hmmbuild binary. If None, uses "hmmbuild" from PATH.
         hmmsearch_binary_path: Path to the hmmsearch binary. If None, uses "hmmsearch" from PATH.
     Returns:
-        A list of templates in dictionary format.
+        A tuple ``(templates_list, hits_meta)`` where ``templates_list`` is a
+        list of templates in dictionary format and ``hits_meta`` is a list of
+        ``(pdb_id, auth_chain_id)`` tuples in the same order.
     Raises:
         ValueError: If required binaries or database paths are not provided.
     """
@@ -1332,11 +1338,53 @@ def search_templates(
     options.misuse_hash = True
     options.align_loops = 20
     options.prefer_pairs = True
+    hits_with_structures = template_hits.get_hits_with_structures()
     templates = [
         Template(
             mmcif=block.as_string(options=options),
             query_to_template_map=hit.query_to_hit_mapping,
         )
-        for hit, block in template_hits.get_hits_with_structures()
+        for hit, block in hits_with_structures
     ]
-    return _make_templates_list(templates)
+    hits_meta = [(hit.pdb_id, hit.auth_chain_id) for hit, _ in hits_with_structures]
+    return _make_templates_list(templates), hits_meta
+
+
+def search_templates(
+    msa_a3m_string: str,
+    pdb_database_path: str | os.PathLike[str] | None = None,
+    seqres_database_path: str | os.PathLike[str] | None = None,
+    hmmsearch_sto_output_path: str | os.PathLike[str] | None = None,
+    max_template_date: datetime.date = datetime.date(2099, 12, 31),
+    max_subsequence_ratio: float | None = 0.95,
+    hmmbuild_binary_path: str | None = shutil.which("hmmbuild"),
+    hmmsearch_binary_path: str | None = shutil.which("hmmsearch"),
+) -> list[dict[str, Any]]:
+    """Searches for templates using hmmsearch given an a3m MSA.
+    The query sequence is extracted from the first line of the a3m.
+    Args:
+        msa_a3m_string: An a3m string containing the MSA for the query sequence.
+        pdb_database_path: Path to the pdb_seqres.txt database file.
+        seqres_database_path: Path to the seqres database file.
+        hmmsearch_sto_output_path: If provided, the hmmsearch .sto output file is
+            copied to this path after the search completes.
+        max_template_date: Maximum release date for templates.
+        max_subsequence_ratio: The maximum ratio of the length of a template subsequence to the length of the query sequence.
+        hmmbuild_binary_path: Path to the hmmbuild binary. If None, uses "hmmbuild" from PATH.
+        hmmsearch_binary_path: Path to the hmmsearch binary. If None, uses "hmmsearch" from PATH.
+    Returns:
+        A list of templates in dictionary format.
+    Raises:
+        ValueError: If required binaries or database paths are not provided.
+    """
+    templates_list, _ = search_templates_with_hits(
+        msa_a3m_string=msa_a3m_string,
+        pdb_database_path=pdb_database_path,
+        seqres_database_path=seqres_database_path,
+        hmmsearch_sto_output_path=hmmsearch_sto_output_path,
+        max_template_date=max_template_date,
+        max_subsequence_ratio=max_subsequence_ratio,
+        hmmbuild_binary_path=hmmbuild_binary_path,
+        hmmsearch_binary_path=hmmsearch_binary_path,
+    )
+    return templates_list

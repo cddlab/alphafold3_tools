@@ -12,7 +12,9 @@ from typing import Any
 from loguru import logger
 
 from alphafold3tools.log import log_setup
-from alphafold3tools.searchtemplates import search_templates
+from alphafold3tools.searchtemplates import search_templates, search_templates_with_hits
+from alphafold3tools.structure.oligomer import guess_homomer_count_from_store
+from alphafold3tools.structure_stores import StructureStore
 from alphafold3tools.utils import add_version_option, int_id_to_str_id
 
 
@@ -167,6 +169,56 @@ def convert_msas_to_str(msas: list[Seq]) -> str:
         return "\n".join(f"{seq.name}{seq.sequence}" for seq in msas) + "\n"
 
 
+def validate_template_search_paths(
+    pdb_database_path: str | os.PathLike[str] | None,
+    seqres_database_path: str | os.PathLike[str] | None,
+    hmmbuild_binary_path: str | None,
+) -> None:
+    """Validate that the paths required for template search exist.
+
+    Called early (before any template search) whenever ``includetemplates`` is
+    requested. ``pdb_database_path`` is a directory of mmCIF files, while
+    ``seqres_database_path`` (the SEQRES database) and ``hmmbuild_binary_path``
+    (the hmmbuild executable) are files, so each is checked against its actual
+    type.
+
+    Args:
+        pdb_database_path: Directory containing the PDB mmCIF database.
+        seqres_database_path: Path to the PDB SEQRES database file.
+        hmmbuild_binary_path: Path to the hmmbuild binary.
+
+    Raises:
+        FileNotFoundError: if a required path is not provided or does not exist.
+        NotADirectoryError: if ``pdb_database_path`` exists but is not a directory.
+    """
+    if pdb_database_path is None:
+        raise FileNotFoundError(
+            "pdb_database_path is required for template search but was not provided."
+        )
+    if not Path(pdb_database_path).is_dir():
+        raise NotADirectoryError(
+            f"pdb_database_path does not exist as a directory: {pdb_database_path}"
+        )
+    if seqres_database_path is None:
+        raise FileNotFoundError(
+            "seqres_database_path is required for template search but was not "
+            "provided."
+        )
+    if not Path(seqres_database_path).exists():
+        raise FileNotFoundError(
+            f"seqres_database_path does not exist: {seqres_database_path}"
+        )
+    if hmmbuild_binary_path is None:
+        raise FileNotFoundError(
+            "hmmbuild_binary_path is required for template search but was not found "
+            "(is hmmbuild installed and on PATH?)."
+        )
+    if not Path(hmmbuild_binary_path).exists():
+        raise FileNotFoundError(
+            f"hmmbuild_binary_path does not exist: {hmmbuild_binary_path}"
+        )
+
+
 def generate_input_json_content(
     name: str,
     cardinality: int,
@@ -182,6 +234,7 @@ def generate_input_json_content(
     hmmbuild_binary_path: str | None = shutil.which("hmmbuild"),
     hmmsearch_binary_path: str | None = shutil.which("hmmsearch"),
     write_msapath: bool = False,
+    guess_copies: bool = False,
     inputmsafile: str | Path | None = None,
     msa_output_dir: Path | None = None,
 ) -> dict[str, Any]:
@@ -205,6 +258,10 @@ def generate_input_json_content(
         hmmsearch_binary_path (str): Path to the hmmsearch binary.
         write_msapath (bool): If True, write MSA content to separate .a3m files and use
             unpairedMsaPath/pairedMsaPath keys instead of unpairedMsa/pairedMsa.
+        guess_copies (bool): If True, guess the homo-oligomer count of each protein
+            chain from the biological assembly of its first template (PDB ID + chain
+            ID) and set the number of chain copies accordingly, overriding the a3m
+            header stoichiometry. Requires includetemplates and pdb_database_path.
         inputmsafile (str | Path | None): Original input a3m file path. Used as
             unpairedMsaPath when no paired MSA exists (single-chain case).
         msa_output_dir (Path | None): Directory to write MSA .a3m files when paired
@@ -212,36 +269,72 @@ def generate_input_json_content(
     Returns:
         str: JSON string for AlphaFold3 input file.
     """
+    if includetemplates:
+        # Fail fast if the template-search inputs are missing, before running any
+        # per-chain hmmbuild/hmmsearch work.
+        validate_template_search_paths(
+            pdb_database_path, seqres_database_path, hmmbuild_binary_path
+        )
     sequences = []
     chain_id_count = 0
     null = None
     for i in range(cardinality):
         # unpairedmsa[i][0] is more appropriate than pairedmsa[i][0].
         query_seq = unpairedmsas[i][0].sequence
-        chain_ids = [
-            int_id_to_str_id(chain_id_count + j + 1) for j in range(stoichiometries[i])
-        ]
-        chain_id_count += stoichiometries[i]
+        # The first chain letter for this sequence depends only on chain_id_count,
+        # not on the (possibly guessed) copy count, so it can be resolved before
+        # the template search / stoichiometry override below.
+        first_chain_id = int_id_to_str_id(chain_id_count + 1)
+        hits_meta: list[tuple[str, str]] = []
         if includetemplates:
             logger.info(
                 f"Searching templates for chain {i + 1} with sequence length {len(query_seq)}..."
             )
             if savehmmsto and msa_output_dir is not None:
-                sto_path = msa_output_dir / f"{name}_{chain_ids[0]}.hmmsearch.sto"
+                sto_path = msa_output_dir / f"{name}_{first_chain_id}.hmmsearch.sto"
             else:
                 sto_path = None
-            templates_list = search_templates(
-                msa_a3m_string=convert_msas_to_str(unpairedmsas[i]),
-                pdb_database_path=pdb_database_path,
-                seqres_database_path=seqres_database_path,
-                hmmsearch_sto_output_path=sto_path,
-                max_template_date=max_template_date,
-                max_subsequence_ratio=max_subsequence_ratio,
-                hmmbuild_binary_path=hmmbuild_binary_path,
-                hmmsearch_binary_path=hmmsearch_binary_path,
-            )
+            if guess_copies:
+                templates_list, hits_meta = search_templates_with_hits(
+                    msa_a3m_string=convert_msas_to_str(unpairedmsas[i]),
+                    pdb_database_path=pdb_database_path,
+                    seqres_database_path=seqres_database_path,
+                    hmmsearch_sto_output_path=sto_path,
+                    max_template_date=max_template_date,
+                    max_subsequence_ratio=max_subsequence_ratio,
+                    hmmbuild_binary_path=hmmbuild_binary_path,
+                    hmmsearch_binary_path=hmmsearch_binary_path,
+                )
+            else:
+                templates_list = search_templates(
+                    msa_a3m_string=convert_msas_to_str(unpairedmsas[i]),
+                    pdb_database_path=pdb_database_path,
+                    seqres_database_path=seqres_database_path,
+                    hmmsearch_sto_output_path=sto_path,
+                    max_template_date=max_template_date,
+                    max_subsequence_ratio=max_subsequence_ratio,
+                    hmmbuild_binary_path=hmmbuild_binary_path,
+                    hmmsearch_binary_path=hmmsearch_binary_path,
+                )
         else:
             templates_list = []
+        # Override the stoichiometry with the homo-oligomer count guessed from the
+        # first template's biological assembly, if requested and a template exists.
+        if guess_copies and hits_meta:
+            pdb_id, hit_chain_id = hits_meta[0]
+            assert pdb_database_path is not None  # validated by main(); guaranteed.
+            copies = guess_homomer_count_from_store(
+                StructureStore(pdb_database_path), pdb_id, hit_chain_id
+            )
+            logger.info(
+                f"Chain {i + 1}: guessed homo-oligomer count = {copies} "
+                f"from template {pdb_id} chain {hit_chain_id}."
+            )
+            stoichiometries[i] = copies
+        chain_ids = [
+            int_id_to_str_id(chain_id_count + j + 1) for j in range(stoichiometries[i])
+        ]
+        chain_id_count += stoichiometries[i]
         has_paired = bool(pairedmsas[i])
         if write_msapath:
             if inputmsafile is None:
@@ -305,6 +398,7 @@ def write_input_json_file(
     hmmbuild_binary_path: str | None = shutil.which("hmmbuild"),
     hmmsearch_binary_path: str | None = shutil.which("hmmsearch"),
     write_msapath: bool = False,
+    guess_copies: bool = False,
 ) -> None:
     """Write AlphaFold3 input JSON file from a3m-format MSA file.
 
@@ -350,6 +444,7 @@ def write_input_json_file(
         hmmbuild_binary_path=hmmbuild_binary_path,
         hmmsearch_binary_path=hmmsearch_binary_path,
         write_msapath=write_msapath,
+        guess_copies=guess_copies,
         inputmsafile=inputmsafile,
         msa_output_dir=Path(outputjsonfile).parent,
     )
@@ -369,6 +464,7 @@ def _process_a3m_file(
     hmmbuild_binary_path: str | None,
     hmmsearch_binary_path: str | None,
     write_msapath: bool,
+    guess_copies: bool = False,
 ) -> None:
     """Process a single A3M file and write the output JSON file."""
     name = Path(a3m_file).stem
@@ -386,6 +482,7 @@ def _process_a3m_file(
         hmmbuild_binary_path=hmmbuild_binary_path,
         hmmsearch_binary_path=hmmsearch_binary_path,
         write_msapath=write_msapath,
+        guess_copies=guess_copies,
     )
 
 
@@ -401,6 +498,7 @@ def process_a3m_directory(
     hmmbuild_binary_path: str | None,
     hmmsearch_binary_path: str | None,
     write_msapath: bool = False,
+    guess_copies: bool = False,
 ) -> None:
     """Process all A3M files in a directory.
 
@@ -437,6 +535,7 @@ def process_a3m_directory(
                 hmmbuild_binary_path,
                 hmmsearch_binary_path,
                 write_msapath,
+                guess_copies,
             )
             for a3m_file in a3m_files
         ]
@@ -455,6 +554,7 @@ def process_single_a3m_file(
     hmmbuild_binary_path: str | None = shutil.which("hmmbuild"),
     hmmsearch_binary_path: str | None = shutil.which("hmmsearch"),
     write_msapath: bool = False,
+    guess_copies: bool = False,
 ) -> None:
     """Process a single A3M file.
 
@@ -482,6 +582,7 @@ def process_single_a3m_file(
         hmmbuild_binary_path=hmmbuild_binary_path,
         hmmsearch_binary_path=hmmsearch_binary_path,
         write_msapath=write_msapath,
+        guess_copies=guess_copies,
     )
 
 
@@ -589,8 +690,29 @@ def main():
         action="store_true",
         default=False,
     )
+    parser.add_argument(
+        "--guess-copies",
+        dest="guess_copies",
+        help="Guess the homo-oligomer count of each protein chain from the "
+        "biological assembly of its first template (PDB ID + chain ID) and set the "
+        "number of chain copies (id list length) accordingly, overriding the a3m "
+        "header stoichiometry. Requires --include_templates and --pdb_database_path.",
+        action="store_true",
+        default=False,
+    )
     args = parser.parse_args()
     log_setup(args.loglevel)
+    if args.guess_copies and not args.include_templates:
+        parser.error("--guess-copies requires --include_templates.")
+    if args.guess_copies and args.pdb_database_path is None:
+        parser.error("--guess-copies requires --pdb_database_path.")
+    if args.include_templates:
+        # Fail fast (before reading MSAs) if any template-search path is missing.
+        validate_template_search_paths(
+            args.pdb_database_path,
+            args.seqres_database_path,
+            args.hmmbuild_binary_path,
+        )
     # Default name is the input file name without extension
     if args.name == "":
         args.name = os.path.splitext(os.path.basename(args.input))[0]
@@ -618,6 +740,7 @@ def main():
             hmmbuild_binary_path=args.hmmbuild_binary_path,
             hmmsearch_binary_path=args.hmmsearch_binary_path,
             write_msapath=args.write_msapath,
+            guess_copies=args.guess_copies,
         )
     else:
         process_single_a3m_file(
@@ -632,6 +755,7 @@ def main():
             hmmbuild_binary_path=args.hmmbuild_binary_path,
             hmmsearch_binary_path=args.hmmsearch_binary_path,
             write_msapath=args.write_msapath,
+            guess_copies=args.guess_copies,
         )
 
 

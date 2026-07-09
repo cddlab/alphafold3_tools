@@ -3,7 +3,9 @@ from pathlib import Path
 
 import pytest
 
+import alphafold3tools.msatojson as msatojson
 from alphafold3tools.msatojson import (
+    Seq,
     convert_msas_to_str,
     generate_input_json_content,
     get_paired_and_unpaired_msa,
@@ -269,3 +271,185 @@ class TestWriteMsaPath:
             paired_file = tmp_path / f"testcomplexseqs_paired_{chain_letter}.a3m"
             assert unpaired_file.read_text() == convert_msas_to_str(unpairedmsas[i])
             assert paired_file.read_text() == convert_msas_to_str(pairedmsas[i])
+
+
+class TestGuessCopies:
+    """--guess-copies overrides the stoichiometry with the homo-oligomer count
+    guessed from the first template's biological assembly."""
+
+    def _single_chain_msas(self):
+        query = Seq(name=">101\n", sequence="PIAQIHILEGRSDEQKE")
+        return [[]], [[query]]
+
+    def _valid_search_paths(self, tmp_path):
+        """Create dummy but existing seqres/hmmbuild paths so the early
+        template-search path validation passes (search itself is monkeypatched)."""
+        seqres = tmp_path / "pdb_seqres.txt"
+        seqres.write_text("")
+        hmmbuild = tmp_path / "hmmbuild"
+        hmmbuild.write_text("")
+        return str(seqres), str(hmmbuild)
+
+    def test_overrides_stoichiometry_to_guessed_count(self, monkeypatch, tmp_path):
+        pairedmsas, unpairedmsas = self._single_chain_msas()
+        seqres, hmmbuild = self._valid_search_paths(tmp_path)
+
+        def fake_search_with_hits(**kwargs):
+            return [], [("1bjp", "A")]
+
+        def fake_guess(store, pdb_id, chain_id):
+            assert (pdb_id, chain_id) == ("1bjp", "A")
+            return 6
+
+        monkeypatch.setattr(
+            msatojson, "search_templates_with_hits", fake_search_with_hits
+        )
+        monkeypatch.setattr(msatojson, "guess_homomer_count_from_store", fake_guess)
+
+        content = generate_input_json_content(
+            name="1bjp",
+            cardinality=1,
+            stoichiometries=[1],  # header says monomer; guessing overrides to 6.
+            pairedmsas=pairedmsas,
+            unpairedmsas=unpairedmsas,
+            includetemplates=True,
+            guess_copies=True,
+            pdb_database_path="testfiles/mmcif_files",
+            seqres_database_path=seqres,
+            hmmbuild_binary_path=hmmbuild,
+        )
+        assert content["sequences"][0]["protein"]["id"] == [
+            "A",
+            "B",
+            "C",
+            "D",
+            "E",
+            "F",
+        ]
+
+    def test_multiple_chains_shift_alphabet_without_overlap(
+        self, monkeypatch, tmp_path
+    ):
+        q1 = Seq(name=">101\n", sequence="AAAA")
+        q2 = Seq(name=">102\n", sequence="CCCC")
+        pairedmsas = [[], []]
+        unpairedmsas = [[q1], [q2]]
+        seqres, hmmbuild = self._valid_search_paths(tmp_path)
+
+        def fake_search_with_hits(**kwargs):
+            # First chain -> dimer (1abc), second chain -> trimer (2xyz).
+            seq = kwargs["msa_a3m_string"]
+            if seq.startswith(">101"):
+                return [], [("1abc", "A")]
+            return [], [("2xyz", "A")]
+
+        def fake_guess(store, pdb_id, chain_id):
+            return 2 if pdb_id == "1abc" else 3
+
+        monkeypatch.setattr(
+            msatojson, "search_templates_with_hits", fake_search_with_hits
+        )
+        monkeypatch.setattr(msatojson, "guess_homomer_count_from_store", fake_guess)
+
+        content = generate_input_json_content(
+            name="complex",
+            cardinality=2,
+            stoichiometries=[1, 1],
+            pairedmsas=pairedmsas,
+            unpairedmsas=unpairedmsas,
+            includetemplates=True,
+            guess_copies=True,
+            pdb_database_path="testfiles/mmcif_files",
+            seqres_database_path=seqres,
+            hmmbuild_binary_path=hmmbuild,
+        )
+        assert content["sequences"][0]["protein"]["id"] == ["A", "B"]
+        assert content["sequences"][1]["protein"]["id"] == ["C", "D", "E"]
+
+    def test_missing_seqres_path_errors_early(self, monkeypatch, tmp_path):
+        # Template search is requested but seqres_database_path does not exist:
+        # generate_input_json_content must fail fast before any search runs.
+        pairedmsas, unpairedmsas = self._single_chain_msas()
+        _, hmmbuild = self._valid_search_paths(tmp_path)
+
+        def boom(**kwargs):  # would be called if validation did not fire first
+            raise AssertionError("template search should not run")
+
+        monkeypatch.setattr(msatojson, "search_templates_with_hits", boom)
+        monkeypatch.setattr(msatojson, "search_templates", boom)
+
+        with pytest.raises(FileNotFoundError, match="seqres_database_path"):
+            generate_input_json_content(
+                name="1bjp",
+                cardinality=1,
+                stoichiometries=[1],
+                pairedmsas=pairedmsas,
+                unpairedmsas=unpairedmsas,
+                includetemplates=True,
+                pdb_database_path="testfiles/mmcif_files",
+                seqres_database_path=str(tmp_path / "does_not_exist.txt"),
+                hmmbuild_binary_path=hmmbuild,
+            )
+
+    def test_missing_pdb_database_dir_errors_early(self, monkeypatch, tmp_path):
+        pairedmsas, unpairedmsas = self._single_chain_msas()
+        seqres, hmmbuild = self._valid_search_paths(tmp_path)
+
+        def boom(**kwargs):
+            raise AssertionError("template search should not run")
+
+        monkeypatch.setattr(msatojson, "search_templates_with_hits", boom)
+        monkeypatch.setattr(msatojson, "search_templates", boom)
+
+        with pytest.raises(NotADirectoryError, match="pdb_database_path"):
+            generate_input_json_content(
+                name="1bjp",
+                cardinality=1,
+                stoichiometries=[1],
+                pairedmsas=pairedmsas,
+                unpairedmsas=unpairedmsas,
+                includetemplates=True,
+                pdb_database_path=str(tmp_path / "no_such_dir"),
+                seqres_database_path=seqres,
+                hmmbuild_binary_path=hmmbuild,
+            )
+
+    def test_no_validation_when_templates_disabled(self, tmp_path):
+        # Without includetemplates, missing template-search paths are irrelevant.
+        pairedmsas, unpairedmsas = self._single_chain_msas()
+        content = generate_input_json_content(
+            name="1bjp",
+            cardinality=1,
+            stoichiometries=[1],
+            pairedmsas=pairedmsas,
+            unpairedmsas=unpairedmsas,
+            includetemplates=False,
+            pdb_database_path=str(tmp_path / "no_such_dir"),
+            seqres_database_path=str(tmp_path / "no_such_file"),
+        )
+        assert content["sequences"][0]["protein"]["id"] == ["A"]
+
+    def test_no_template_hits_falls_back_to_one(self, monkeypatch, tmp_path):
+        pairedmsas, unpairedmsas = self._single_chain_msas()
+        seqres, hmmbuild = self._valid_search_paths(tmp_path)
+
+        def fake_search_with_hits(**kwargs):
+            return [], []  # no template hits
+
+        monkeypatch.setattr(
+            msatojson, "search_templates_with_hits", fake_search_with_hits
+        )
+
+        content = generate_input_json_content(
+            name="1bjp",
+            cardinality=1,
+            stoichiometries=[1],
+            pairedmsas=pairedmsas,
+            unpairedmsas=unpairedmsas,
+            includetemplates=True,
+            guess_copies=True,
+            pdb_database_path="testfiles/mmcif_files",
+            seqres_database_path=seqres,
+            hmmbuild_binary_path=hmmbuild,
+        )
+        assert content["sequences"][0]["protein"]["id"] == ["A"]
