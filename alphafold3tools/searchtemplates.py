@@ -643,6 +643,9 @@ def _parse_hit_metadata_with_gemmi(
     auth_chain_id: str,
 ) -> tuple[Any, str | None, list[int] | None]:
     """Parse hit metadata by parsing mmCIF from structure store."""
+    # Normalise to lowercase so lookups match the lowercase filenames written by
+    # _download_mmcif_file_for_pdbid on case-sensitive filesystems (e.g. Linux).
+    pdb_id = pdb_id.lower()
     try:
         doc = gemmi.cif.read_string(structure_store.get_mmcif_str(pdb_id))
     except structure_stores.NotFoundError:
