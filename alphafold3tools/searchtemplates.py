@@ -659,23 +659,26 @@ def _parse_hit_metadata_with_gemmi(
         "_entity_poly.", ["type", "pdbx_seq_one_letter_code_can", "pdbx_strand_id"]
     )
     logger.debug(f"Got entity_polys for {pdb_id}: {entity_polys}")
+    # Extract the sequence for the entity_poly matching auth_chain_id regardless
+    # of polymer type. A template PDB may contain bystander chains of other types
+    # (e.g. polyribonucleotide in a protein-RNA complex); those are ignored here.
+    sequence: str | None = None
     for entity_poly in entity_polys:
         logger.debug(
             f"Checking entity_poly with type {entity_poly['type']} and strand_id {entity_poly['pdbx_strand_id']} for auth_chain_id {auth_chain_id}"
         )
-        if (
-            entity_poly["type"] == "'polypeptide(L)'"
-            or entity_poly["type"] == '"polypeptide(L)"'
-        ):
-            if auth_chain_id in entity_poly["pdbx_strand_id"].split(","):
-                sequence = (
-                    entity_poly["pdbx_seq_one_letter_code_can"]
-                    .replace("'", "")
-                    .replace(";", "")
-                    .replace("\n", "")
-                )
-        else:
-            raise ValueError(f"Unexpected polymer type: {entity_poly['type']}")
+        if auth_chain_id in entity_poly["pdbx_strand_id"].split(","):
+            sequence = (
+                entity_poly["pdbx_seq_one_letter_code_can"]
+                .replace("'", "")
+                .replace(";", "")
+                .replace("\n", "")
+            )
+            break
+    if sequence is None:
+        raise ValueError(
+            f"No _entity_poly entry found for auth chain {auth_chain_id} in {pdb_id}."
+        )
     # missing residues
     label_asym_residues = model[auth_chain_id].get_polymer()
     all_res_ids = np.arange(1, len(sequence) + 1)
