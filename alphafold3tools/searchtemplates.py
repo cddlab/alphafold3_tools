@@ -667,16 +667,17 @@ def _parse_hit_metadata_with_gemmi(
     # (e.g. polyribonucleotide in a protein-RNA complex); those are ignored here.
     sequence: str | None = None
     for entity_poly in entity_polys:
+        # Row.__getitem__ returns the raw, still-quoted CIF text (e.g. the
+        # enclosing "'" or the ";...;" multi-line text-field markers used for
+        # long pdbx_strand_id lists such as multi-copy assemblies). Row.str()
+        # applies CIF unquoting so values like "1A" aren't left as ";1A".
+        entity_type = entity_poly.str(0)
+        strand_ids = entity_poly.str(2)
         logger.debug(
-            f"Checking entity_poly with type {entity_poly['type']} and strand_id {entity_poly['pdbx_strand_id']} for auth_chain_id {auth_chain_id}"
+            f"Checking entity_poly with type {entity_type} and strand_id {strand_ids} for auth_chain_id {auth_chain_id}"
         )
-        if auth_chain_id in entity_poly["pdbx_strand_id"].split(","):
-            sequence = (
-                entity_poly["pdbx_seq_one_letter_code_can"]
-                .replace("'", "")
-                .replace(";", "")
-                .replace("\n", "")
-            )
+        if auth_chain_id in strand_ids.split(","):
+            sequence = entity_poly.str(1).replace("\n", "")
             break
     if sequence is None:
         raise ValueError(
