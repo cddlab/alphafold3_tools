@@ -181,7 +181,8 @@ class TestWriteMsaPath:
 
     def test_single_chain_uses_original_path(self, setup_homomer_lines, tmp_path):
         """Single-chain a3m (no paired MSA): unpairedMsaPath must equal the
-        original input file path; pairedMsaPath must be empty string."""
+        original input file path; pairedMsa must be an empty string (not
+        pairedMsaPath, which AlphaFold3 rejects when empty)."""
         residue_lens, stoichiometries = get_residuelens_stoichiometries(
             lines=setup_homomer_lines
         )
@@ -202,9 +203,9 @@ class TestWriteMsaPath:
         )
         prot = content["sequences"][0]["protein"]
         assert prot["unpairedMsaPath"] == str(inputmsafile)
-        assert prot["pairedMsaPath"] == ""
+        assert prot["pairedMsa"] == ""
         assert "unpairedMsa" not in prot
-        assert "pairedMsa" not in prot
+        assert "pairedMsaPath" not in prot
 
     def test_multi_chain_writes_msa_files(self, setup_lines, tmp_path):
         """Multi-chain a3m (paired MSA present): new .a3m files are written to

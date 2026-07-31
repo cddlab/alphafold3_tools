@@ -255,7 +255,9 @@ def generate_input_json_content(
         hmmbuild_binary_path (str): Path to the hmmbuild binary.
         hmmsearch_binary_path (str): Path to the hmmsearch binary.
         write_msapath (bool): If True, write MSA content to separate .a3m files and use
-            unpairedMsaPath/pairedMsaPath keys instead of unpairedMsa/pairedMsa.
+            unpairedMsaPath/pairedMsaPath keys instead of unpairedMsa/pairedMsa. When no
+            paired MSA exists, "pairedMsa": "" is emitted instead of "pairedMsaPath": ""
+            since AlphaFold3 errors on an empty pairedMsaPath.
         guess_copies (bool): If True, guess the homo-oligomer count of each protein
             chain from the biological assembly of its first template (PDB ID + chain
             ID) and set the number of chain copies accordingly, overriding the a3m
@@ -340,7 +342,7 @@ def generate_input_json_content(
             if not has_paired:
                 msa_entry: dict[str, str] = {
                     "unpairedMsaPath": str(inputmsafile),
-                    "pairedMsaPath": "",
+                    "pairedMsa": "",
                 }
             else:
                 if msa_output_dir is None:
