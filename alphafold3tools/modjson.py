@@ -8,7 +8,7 @@ from loguru import logger
 
 from alphafold3tools import __version__
 from alphafold3tools.log import log_setup
-from alphafold3tools.utils import add_version_option, int_id_to_str_id
+from alphafold3tools.utils import add_version_option, int_id_to_str_id, to_json
 
 
 def read_json_data(jsonpath: str) -> dict:
@@ -30,7 +30,7 @@ def write_json_data(outputfile: str, data: dict):
         data (dict): Json data.
     """
     with open(outputfile, "w") as file:
-        json.dump(data, file, indent=4)
+        file.write(to_json(data))
 
 
 def remove_ccdcodes(data: dict, ccdcodes_to_remove: list[str]) -> dict:

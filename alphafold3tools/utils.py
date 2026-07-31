@@ -1,3 +1,4 @@
+import json
 import re
 import string
 from argparse import ArgumentParser
@@ -64,3 +65,18 @@ def get_seednumbers(dir: str | Path) -> list[int]:
         {int(m.group(1)) for d in subdirs if (m := pattern.match(d.name))}
     )
     return sorted(seednumbers)
+
+
+def to_json(content: dict) -> str:
+    """Converts Input to an AlphaFold JSON."""
+    alphafold_json = json.dumps(content, indent=2)
+    # Collapse the per-element newlines inside flat list values for
+    # queryIndices/templateIndices/modelSeeds (numbers) and id (strings), e.g.
+    # "queryIndices": [12, 13, 14, 15] instead of one element per line. We
+    # match the entire region between the square brackets by excluding
+    # brackets themselves, since these fields never contain nested arrays.
+    return re.sub(
+        r'("(?:queryIndices|templateIndices|modelSeeds|id)": \[)([^\[\]]*)(\])',
+        lambda mtch: mtch[1] + re.sub(r"\s+", " ", mtch[2]).strip() + mtch[3],
+        alphafold_json,
+    )

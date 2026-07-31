@@ -1,8 +1,6 @@
 import concurrent.futures
 import datetime
-import json
 import os
-import re
 import shutil
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 from dataclasses import dataclass
@@ -15,7 +13,7 @@ from alphafold3tools.log import log_setup
 from alphafold3tools.searchtemplates import search_templates, search_templates_with_hits
 from alphafold3tools.structure.oligomer import guess_homomer_count_from_store
 from alphafold3tools.structure_stores import StructureStore
-from alphafold3tools.utils import add_version_option, int_id_to_str_id
+from alphafold3tools.utils import add_version_option, int_id_to_str_id, to_json
 
 
 @dataclass
@@ -583,20 +581,6 @@ def process_single_a3m_file(
         hmmsearch_binary_path=hmmsearch_binary_path,
         write_msapath=write_msapath,
         guess_copies=guess_copies,
-    )
-
-
-def to_json(content: dict) -> str:
-    """Converts Input to an AlphaFold JSON."""
-    alphafold_json = json.dumps(content, indent=2)
-    # Remove newlines from the query/template indices arrays. We match the
-    # queryIndices/templatesIndices with a non-capturing group. We then match
-    # the entire region between the square brackets by looking for lines
-    # containing only whitespace, number, or a comma.
-    return re.sub(
-        r'("(?:queryIndices|templateIndices|modelSeeds)": \[)([\s\n\d,]+)(\],?)',
-        lambda mtch: mtch[1] + re.sub(r"\n\s+", " ", mtch[2].strip()) + mtch[3],
-        alphafold_json,
     )
 
 
