@@ -1,6 +1,6 @@
 [project]
 name = "alphafold3_tools"
-version = "0.5.4"
+version = "0.5.5"
 description = "Toolkit for alphafold3 input and output files"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -55,14 +55,14 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "ty>=0.0.63",
-    "notebook>=7.6.1",
+    "ty>=0.0.76",
+    "notebook>=7.6.2",
     "pandas>=3.0.5",
     "pytest>=9.1.1",
     "pyyaml>=6.0.3",
-    "ruff>=0.16.0",
-    "build>=1.5.0",
-    "twine>=6.2.0",
+    "ruff>=0.16.5",
+    "build>=1.6.0",
+    "twine>=7.0.0",
 ]
 
 [tool.hatch.metadata]
