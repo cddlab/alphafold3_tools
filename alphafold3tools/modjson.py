@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 import copy
+import datetime
 import json
+import shutil
 from argparse import ArgumentParser, RawTextHelpFormatter
+from pathlib import Path
 from typing import Literal, cast
 
 from loguru import logger
@@ -208,6 +211,150 @@ def add_userccd(data: dict, userccd_files: list[str]) -> dict:
     return new_data
 
 
+def _resolve_chain_a3m(protein: dict) -> str:
+    """Resolve the per-chain a3m MSA string for a protein entity.
+
+    AlphaFold3 stores each protein chain's MSA as a per-chain a3m (query first).
+    Prefer the inline ``unpairedMsa`` string; otherwise read the file referenced
+    by ``unpairedMsaPath``; if neither is available, fall back to a single-sequence
+    a3m built from the query ``sequence``.
+
+    Args:
+        protein (dict): A protein entity dict from ``data["sequences"]``.
+    Returns:
+        str: An a3m-format MSA string whose first record is the query.
+    """
+    unpaired_msa = protein.get("unpairedMsa")
+    if isinstance(unpaired_msa, str) and unpaired_msa.strip():
+        return unpaired_msa
+    unpaired_msa_path = protein.get("unpairedMsaPath")
+    if isinstance(unpaired_msa_path, str) and unpaired_msa_path:
+        with open(unpaired_msa_path, "r") as f:
+            return f.read()
+    return f">query\n{protein['sequence']}\n"
+
+
+def add_templates(
+    data: dict,
+    *,
+    pdb_database_path: str | None,
+    seqres_database_path: str | None,
+    max_template_date: datetime.date = datetime.date(2099, 12, 31),
+    max_subsequence_ratio: float | None = 0.95,
+    hmmbuild_binary_path: str | None = shutil.which("hmmbuild"),
+    hmmsearch_binary_path: str | None = shutil.which("hmmsearch"),
+    save_hmmsto: bool = False,
+    guess_copies: bool = False,
+    overwrite: bool = False,
+    name: str | None = None,
+    output_dir: Path | None = None,
+) -> dict:
+    """Add template search results to protein chains in AlphaFold3 json data.
+
+    For each protein entity, runs the template-search pipeline (HMMER + PDB
+    mmCIF/SEQRES databases) reusing the same helpers as ``msatojson`` and stores
+    the result under ``protein["templates"]``.
+
+    Chains that already have a non-empty ``templates`` list are preserved (skipped)
+    unless ``overwrite`` is True. When ``guess_copies`` is True, the chain's copy
+    count (``protein["id"]`` list length) is overridden with the homo-oligomer
+    count guessed from the first template's biological assembly; the provisional
+    ids are renumbered globally afterwards by ``fix_sequence_ids``.
+
+    Args:
+        data (dict): AlphaFold3 json data.
+        pdb_database_path (str): Directory of the PDB mmCIF database.
+        seqres_database_path (str): Path to the PDB SEQRES database file.
+        max_template_date (datetime.date): Maximum template release date.
+        max_subsequence_ratio (float | None): Maximum subsequence ratio; None
+            disables subsequence-ratio filtering.
+        hmmbuild_binary_path (str): Path to the hmmbuild binary.
+        hmmsearch_binary_path (str): Path to the hmmsearch binary.
+        save_hmmsto (bool): Whether to save intermediate HMM sto files.
+        guess_copies (bool): Whether to override each chain's copy count from the
+            first template's biological assembly.
+        overwrite (bool): Whether to re-search and replace existing templates.
+        name (str | None): Base name used for saved sto file names.
+        output_dir (Path | None): Directory to write sto files when save_hmmsto.
+    Returns:
+        dict: A new dictionary with templates added.
+    """
+    # Lazy imports: the template-search stack pulls in gemmi/pandas etc., which
+    # should not be paid by plain modjson invocations (e.g. ligand-only edits).
+    from alphafold3tools.msatojson import validate_template_search_paths
+    from alphafold3tools.searchtemplates import (
+        search_templates,
+        search_templates_with_hits,
+    )
+    from alphafold3tools.structure.oligomer import guess_homomer_count_from_store
+    from alphafold3tools.structure_stores import StructureStore
+
+    validate_template_search_paths(
+        pdb_database_path, seqres_database_path, hmmbuild_binary_path
+    )
+    new_data = copy.deepcopy(data)
+    for chain_index, sequence_content in enumerate(new_data["sequences"]):
+        if "protein" not in sequence_content:
+            continue
+        protein = sequence_content["protein"]
+        existing = protein.get("templates")
+        if existing and not overwrite:
+            logger.info(
+                f"Chain {chain_index + 1} already has {len(existing)} template(s); "
+                "preserving them (use -O/--overwrite-templates to replace)."
+            )
+            continue
+        a3m_string = _resolve_chain_a3m(protein)
+        chain_id = protein.get("id")
+        first_chain_id = chain_id[0] if isinstance(chain_id, list) else chain_id
+        if save_hmmsto and output_dir is not None:
+            sto_path: Path | None = (
+                output_dir / f"{name}_{first_chain_id}.hmmsearch.sto"
+            )
+        else:
+            sto_path = None
+        logger.info(
+            f"Searching templates for chain {chain_index + 1} "
+            f"(sequence length {len(protein.get('sequence', ''))})..."
+        )
+        if guess_copies:
+            templates_list, hits_meta = search_templates_with_hits(
+                msa_a3m_string=a3m_string,
+                pdb_database_path=pdb_database_path,
+                seqres_database_path=seqres_database_path,
+                hmmsearch_sto_output_path=sto_path,
+                max_template_date=max_template_date,
+                max_subsequence_ratio=max_subsequence_ratio,
+                hmmbuild_binary_path=hmmbuild_binary_path,
+                hmmsearch_binary_path=hmmsearch_binary_path,
+            )
+            if hits_meta:
+                pdb_id, hit_chain_id = hits_meta[0]
+                assert pdb_database_path is not None  # validated above.
+                copies = guess_homomer_count_from_store(
+                    StructureStore(pdb_database_path), pdb_id, hit_chain_id
+                )
+                logger.info(
+                    f"Chain {chain_index + 1}: guessed homo-oligomer count = "
+                    f"{copies} from template {pdb_id} chain {hit_chain_id}."
+                )
+                # Provisional ids; renumbered globally by fix_sequence_ids later.
+                protein["id"] = [int_id_to_str_id(j + 1) for j in range(copies)]
+        else:
+            templates_list = search_templates(
+                msa_a3m_string=a3m_string,
+                pdb_database_path=pdb_database_path,
+                seqres_database_path=seqres_database_path,
+                hmmsearch_sto_output_path=sto_path,
+                max_template_date=max_template_date,
+                max_subsequence_ratio=max_subsequence_ratio,
+                hmmbuild_binary_path=hmmbuild_binary_path,
+                hmmsearch_binary_path=hmmsearch_binary_path,
+            )
+        protein["templates"] = templates_list
+    return new_data
+
+
 def modjson(
     input,
     output,
@@ -217,6 +364,16 @@ def modjson(
     name=None,
     userccd_to_be_added=None,
     debug="SUCCESS",
+    includetemplates=False,
+    savehmmsto=False,
+    pdb_database_path=None,
+    seqres_database_path=None,
+    max_template_date=datetime.date(2099, 12, 31),
+    max_subsequence_ratio=0.95,
+    hmmbuild_binary_path: str | None = shutil.which("hmmbuild"),
+    hmmsearch_binary_path: str | None = shutil.which("hmmsearch"),
+    guess_copies=False,
+    overwrite_templates=False,
 ) -> None:
     """Modifies AlphaFold3 JSON file.
     Args:
@@ -230,6 +387,17 @@ def modjson(
         userccd_to_be_added (list[str]): Add user provided ccdCodes
                                          to the input JSON file.
         debug (str): Print lots of debugging statements.
+        includetemplates (bool): Whether to run template search and add templates.
+        savehmmsto (bool): Whether to save intermediate HMM sto files.
+        pdb_database_path (str): Path to the PDB mmCIF database for template search.
+        seqres_database_path (str): Path to the PDB SEQRES database for template search.
+        max_template_date (datetime.date): Maximum template date for template search.
+        max_subsequence_ratio (float | None): Maximum subsequence ratio for template
+                                              search.
+        hmmbuild_binary_path (str): Path to the hmmbuild binary.
+        hmmsearch_binary_path (str): Path to the hmmsearch binary.
+        guess_copies (bool): Whether to guess the homo-oligomer count from templates.
+        overwrite_templates (bool): Whether to overwrite existing templates.
     """
     logger.info(f"Reading input JSON file: {input}")
     data = read_json_data(input)
@@ -250,6 +418,23 @@ def modjson(
                 )
             ligand_type_literal = cast(Literal["smiles", "ccdCodes"], ligand_type)
             data = add_ligand(data, ligand_type_literal, ligand_name, int(num_ligand))
+    if includetemplates:
+        logger.info("Searching and adding template information to the input JSON file.")
+        template_name = data.get("name") or Path(output).stem
+        data = add_templates(
+            data,
+            pdb_database_path=pdb_database_path,
+            seqres_database_path=seqres_database_path,
+            max_template_date=max_template_date,
+            max_subsequence_ratio=max_subsequence_ratio,
+            hmmbuild_binary_path=hmmbuild_binary_path,
+            hmmsearch_binary_path=hmmsearch_binary_path,
+            save_hmmsto=savehmmsto,
+            guess_copies=guess_copies,
+            overwrite=overwrite_templates,
+            name=template_name,
+            output_dir=Path(output).parent,
+        )
     data = fix_sequence_ids(data)
 
     if name:
@@ -345,8 +530,107 @@ def main():
         const="DEBUG",
         default="SUCCESS",
     )
+    parser.add_argument(
+        "--include_templates",
+        help="Search and add template information to each protein chain.\n"
+        "Requires --pdb_database_path, --seqres_database_path and HMMER binaries.\n"
+        "Chains that already have templates are preserved unless "
+        "-O/--overwrite-templates is given.",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "-O",
+        "--overwrite-templates",
+        dest="overwrite_templates",
+        help="Overwrite existing template information when --include_templates is set.\n"
+        "Only affects template overwriting; other entities are unaffected.",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--save_hmmsto",
+        help="Save intermediate HMM sto files used for template search.",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--pdb_database_path",
+        help="Path to the PDB mmCIF database for template search.",
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
+        "--seqres_database_path",
+        help="Path to the PDB SEQRES database for template search.",
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
+        "--max_template_date",
+        help="Maximum template date for template search in YYYY-MM-DD format. "
+        "Default is 2099-12-31.",
+        type=lambda s: datetime.date.fromisoformat(s),
+        default=datetime.date(2099, 12, 31),
+    )
+    parser.add_argument(
+        "--max_subsequence_ratio",
+        help="Maximum subsequence ratio for template search. "
+        "If set to 1.0, no templates will be excluded based on subsequence ratio. "
+        "Default is 0.95.",
+        type=float,
+        default=0.95,
+    )
+    parser.add_argument(
+        "--hmmbuild_binary_path",
+        help="Path to the hmmbuild binary. Default is to use the hmmbuild in PATH.",
+        type=str,
+        default=shutil.which("hmmbuild"),
+    )
+    parser.add_argument(
+        "--hmmsearch_binary_path",
+        help="Path to the hmmsearch binary. Default is to use the hmmsearch in PATH.",
+        type=str,
+        default=shutil.which("hmmsearch"),
+    )
+    parser.add_argument(
+        "--guess_copies",
+        "--guess-copies",
+        dest="guess_copies",
+        help="Guess the homo-oligomer count of each protein chain from the "
+        "biological assembly of its first template (PDB ID + chain ID) and set the "
+        "number of chain copies (id list length) accordingly, overriding the "
+        "existing copy count. Requires --include_templates and --pdb_database_path.",
+        action="store_true",
+        default=False,
+    )
     args = parser.parse_args()
     log_setup(args.loglevel)
+    if args.guess_copies and not args.include_templates:
+        parser.error("--guess_copies requires --include_templates.")
+    if args.guess_copies and args.pdb_database_path is None:
+        parser.error("--guess_copies requires --pdb_database_path.")
+    if args.overwrite_templates and not args.include_templates:
+        logger.warning(
+            "-O/--overwrite-templates has no effect without --include_templates; "
+            "ignoring."
+        )
+    if args.include_templates:
+        # Fail fast (before mutating anything) if any template-search path is missing.
+        from alphafold3tools.msatojson import validate_template_search_paths
+
+        validate_template_search_paths(
+            args.pdb_database_path,
+            args.seqres_database_path,
+            args.hmmbuild_binary_path,
+        )
+    max_subsequence_ratio = args.max_subsequence_ratio
+    if max_subsequence_ratio == 1.0:
+        logger.success(
+            "No templates will be excluded based on subsequence ratio since "
+            "max_subsequence_ratio is set to 1.0."
+        )
+        max_subsequence_ratio = None
     modjson(
         args.input_json,
         args.out,
@@ -356,6 +640,16 @@ def main():
         args.name,
         args.userccd_to_be_added,
         args.loglevel,
+        includetemplates=args.include_templates,
+        savehmmsto=args.save_hmmsto,
+        pdb_database_path=args.pdb_database_path,
+        seqres_database_path=args.seqres_database_path,
+        max_template_date=args.max_template_date,
+        max_subsequence_ratio=max_subsequence_ratio,
+        hmmbuild_binary_path=args.hmmbuild_binary_path,
+        hmmsearch_binary_path=args.hmmsearch_binary_path,
+        guess_copies=args.guess_copies,
+        overwrite_templates=args.overwrite_templates,
     )
 
 

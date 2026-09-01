@@ -213,6 +213,33 @@ af3tools modjson -i input.json -o output.json [-n jobname] [-p] \
 > [!NOTE]
 > A `*_data.json` file in the AlphaFold3's output directory can be also used as an input JSON file of `modjson`.
 
+#### Template search (`--include_templates`)
+
+`modjson` can also add template information to an **existing** JSON file (for example one produced by `msatojson` without templates, or an AlphaFold3 `*_data.json`). This runs the same template-search pipeline as `msatojson --include_templates` on each protein chain's MSA (read from its `unpairedMsa`, or from `unpairedMsaPath`), and stores the result in that chain's `templates` field. The template options are identical to `msatojson`, and the ligand options (`-a`/`-u`) work independently of template search.
+
+```bash
+af3tools modjson \
+    -i A6VX99_2.json \
+    -o A6VX99_2_templates.json \
+    --include_templates \
+    --pdb_database_path /path/to/mmcif_files \
+    --seqres_database_path /path/to/pdb_seqres.txt \
+    --max_template_date 2099-12-31 \
+    --max_subsequence_ratio 1.0 \
+    --hmmbuild_binary_path /path/to/hmmbuild \
+    --hmmsearch_binary_path /path/to/hmmsearch \
+    [--guess_copies] [--save_hmmsto] [-O/--overwrite-templates]
+```
+
+- `--include_templates`: Search and add template information to each protein chain. Requires `--pdb_database_path`, `--seqres_database_path`, and the HMMER binaries (`--hmmbuild_binary_path`/`--hmmsearch_binary_path`, defaulting to the ones on `PATH`).
+- `--max_template_date` / `--max_subsequence_ratio`: Same as in `msatojson`. Setting `--max_subsequence_ratio 1.0` disables subsequence-ratio filtering.
+- `-O` / `--overwrite-templates`: Overwrite existing template information. By default, a protein chain that already has a non-empty `templates` list is **preserved (skipped)**; only chains with empty/absent templates are searched. With `-O`, every protein chain is re-searched and its templates replaced. This option only affects template overwriting; other entities are unaffected.
+- `--save_hmmsto`: Save the intermediate hmmsearch Stockholm (`.sto`) file per chain, named `{name}_{chain_id}.hmmsearch.sto`, in the output JSON's directory.
+- `--guess_copies`: Infer the homo-oligomer count of each protein chain from its first template's biological assembly and set the chain's copy count (`id` list length) accordingly, overriding the existing count. Requires `--include_templates` and `--pdb_database_path`. Chain ids are renumbered contiguously afterwards.
+
+> [!NOTE]
+> `--write_msapath` is available only in `msatojson`; `modjson` keeps the MSA representation of the input JSON unchanged.
+
 ### paeplot
 
 `paeplot` is a command to plot the predicted aligned error (PAE). The color map can be specified with the `-c` option. The default color map is `bwr` (ColabFold-like), but `Greens_r` is also available for AlphaFold Structure Database (AFDB)-like coloring.
