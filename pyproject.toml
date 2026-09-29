@@ -32,16 +32,14 @@ ignore = ["F401", "E501"]
 fixable = ["ALL"]
 unfixable = []
 
-[tool.ruff.isort]
+[tool.ruff.lint.isort]
 combine-as-imports = true
 section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
 split-on-trailing-comma = true
+known-third-party = ["fastapi", "pydantic", "starlette"]
 
 [tool.ruff.format]
 quote-style = "double"
-
-[tool.ruff.lint.isort]
-known-third-party = ["fastapi", "pydantic", "starlette"]
 
 [tool.pytest.ini_options]
 filterwarnings = [
