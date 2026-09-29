@@ -16,7 +16,7 @@ authors = [
 
 [tool.ruff]
 indent-width = 4
-line-length = 88 # Same as Black.
+line-length = 120 # Same as Black.
 exclude = [".ruff_cache", ".ruff.toml", ".ruff.lock"]
 target-version = "py312"
 
