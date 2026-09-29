@@ -521,7 +521,7 @@ def process_a3m_directory(
     else:
         max_workers = None
     with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = [
+        futures = {
             executor.submit(
                 _process_a3m_file,
                 a3m_file,
@@ -536,10 +536,18 @@ def process_a3m_directory(
                 hmmsearch_binary_path,
                 write_msapath,
                 guess_copies,
-            )
+            ): a3m_file
             for a3m_file in a3m_files
-        ]
-        concurrent.futures.wait(futures)
+        }
+        total = len(futures)
+        for done, future in enumerate(concurrent.futures.as_completed(futures), start=1):
+            a3m_file = futures[future]
+            try:
+                future.result()
+            except Exception as e:
+                logger.error(f"[{done}/{total}] Failed to process {a3m_file}: {e}")
+            else:
+                logger.success(f"[{done}/{total}] Processed {a3m_file} -> {output_dir / f'{a3m_file.stem}.json'}")
 
 
 def process_single_a3m_file(
