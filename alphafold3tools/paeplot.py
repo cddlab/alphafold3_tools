@@ -5,8 +5,7 @@ from pathlib import Path
 import matplotlib
 import numpy as np
 from loguru import logger
-from matplotlib import pyplot as plt
-from matplotlib import rcParams
+from matplotlib import pyplot as plt, rcParams
 from matplotlib.colors import BoundaryNorm, ListedColormap
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
@@ -55,9 +54,7 @@ def get_chain_ids_and_lengths(token_chain_ids: list[str]) -> dict:
         count_dict (dict): Dictionary containing the chain IDs and lengths
     """
     unique_chain_ids = list(dict.fromkeys(token_chain_ids))
-    count_dict = {
-        chain_id: token_chain_ids.count(chain_id) for chain_id in unique_chain_ids
-    }
+    count_dict = {chain_id: token_chain_ids.count(chain_id) for chain_id in unique_chain_ids}
     return count_dict
 
 
@@ -197,9 +194,7 @@ def plot_all_paes(
     dir = Path(dir).resolve()
     basename = Path(dir).name
     output_name = f"{dir}/{basename}_{out}.{format}"
-    logger.info(
-        f"The input directory is {dir}. The output plot will be saved as {output_name}."
-    )
+    logger.info(f"The input directory is {dir}. The output plot will be saved as {output_name}.")
     bestconfidencejsonfile = Path(dir) / f"{basename}_confidences.json"
     if not bestconfidencejsonfile.exists():
         FileNotFoundError(f"{bestconfidencejsonfile} does not exist.")
@@ -207,9 +202,7 @@ def plot_all_paes(
         data = json.load(f)
     data["pae"] = np.array(data["pae"])
     chain_ids_and_lengths = get_chain_ids_and_lengths(data["token_chain_ids"])
-    fig, axes = plt.subplots(
-        len(seednumbers), 5, figsize=(3.6 * 5, 4.2 * len(seednumbers)), dpi=300
-    )
+    fig, axes = plt.subplots(len(seednumbers), 5, figsize=(3.6 * 5, 4.2 * len(seednumbers)), dpi=300)
     if title != "":
         fig.suptitle(title, fontsize=16)
     for i, seed in enumerate(seednumbers):
@@ -225,9 +218,7 @@ def plot_all_paes(
             elif newconfidencefile.exists():
                 confidencejsonfile = newconfidencefile
             else:
-                FileNotFoundError(
-                    f"No {oldconfidencefile} or {newconfidencefile} found."
-                )
+                FileNotFoundError(f"No {oldconfidencefile} or {newconfidencefile} found.")
             with open(confidencejsonfile, "r") as f:
                 data = json.load(f)
             if len(seednumbers) == 1:
@@ -286,9 +277,7 @@ def plot_best_pae(
     dir = Path(dir).resolve()
     basename = Path(dir).name
     output_name = f"{dir}/{basename}_{out}.{format}"
-    logger.info(
-        f"The input directory is {dir}. The output plot will be saved as {output_name}."
-    )
+    logger.info(f"The input directory is {dir}. The output plot will be saved as {output_name}.")
     jsonfile = Path(dir) / f"{basename}_confidences.json"
     if not jsonfile.exists():
         FileNotFoundError(f"{jsonfile} does not exist.")
@@ -361,9 +350,7 @@ def plot_pae_from_json(
         # assume single chain with chain ID "A"
         chain_ids_and_lengths = {"A": length}
     else:
-        raise KeyError(
-            f"{jsonfile} does not contain 'predicted_aligned_error' or 'pae' key."
-        )
+        raise KeyError(f"{jsonfile} does not contain 'predicted_aligned_error' or 'pae' key.")
     fig, ax = plt.subplots(figsize=(3.6, 4.2), dpi=300)
     if title != "":
         fig.suptitle(title, fontsize=16)
@@ -412,8 +399,7 @@ def main():
     parser.add_argument(
         "-c",
         "--cmap",
-        help="Colormap for the plot. "
-        "Currently only 'bwr' and 'Greens_r' are supported.",
+        help="Colormap for the plot. Currently only 'bwr' and 'Greens_r' are supported.",
         choices=["bwr", "Greens_r"],
         default="bwr",
         type=str,
@@ -441,8 +427,7 @@ def main():
     )
     parser.add_argument(
         "--dpi",
-        help="DPI of the output plot. Default is 100, but 300 is recommended "
-        "for publication.",
+        help="DPI of the output plot. Default is 100, but 300 is recommended for publication.",
         default=100,
         type=int,
     )
