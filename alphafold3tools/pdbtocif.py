@@ -43,6 +43,7 @@ def pdb_to_cif(
 
     st = gemmi.read_pdb_string(pdb_text)
     st.setup_entities()
+    _fill_missing_entity_sequences(st)
     st.assign_label_seq_id()
 
     pdb_id = st.info["_entry.id"] if "_entry.id" in st.info else default_pdb_id
@@ -130,6 +131,30 @@ def pdb_to_cif(
 # ---------------------------------------------------------------------------
 # Entity / subchain remapping
 # ---------------------------------------------------------------------------
+
+
+def _fill_missing_entity_sequences(st: gemmi.Structure) -> None:
+    """Fill empty polymer entity sequences from the ATOM records.
+
+    PDB files without SEQRES records (e.g. predicted models) leave
+    ``Entity.full_sequence`` empty, which results in ``?`` for
+    ``_entity_poly.pdbx_seq_one_letter_code`` and ``.`` for
+    ``_atom_site.label_seq_id``. Use the residues of the first subchain
+    of each such entity as its full sequence.
+    """
+    if len(st) == 0:
+        return
+    model = st[0]
+    for entity in st.entities:
+        if entity.entity_type != gemmi.EntityType.Polymer or entity.full_sequence:
+            continue
+        if not entity.subchains:
+            continue
+        subchain = model.get_subchain(entity.subchains[0])
+        entity.full_sequence = [res.name for res in subchain]
+        logger.info(
+            f"No SEQRES for entity {entity.name}; using {len(subchain)} residues from ATOM records as its sequence."
+        )
 
 
 def _remap_entities_and_subchains(st: gemmi.Structure) -> None:
@@ -322,9 +347,7 @@ def _fix_refine_ls_restr(cats: dict) -> None:
         "pdbx_refine_id",
         "pdbx_restraint_function",
     ]
-    cats["_refine_ls_restr."] = {
-        k: d.get(k, ["?"] * _nrows(cats, "_refine_ls_restr.")) for k in desired
-    }
+    cats["_refine_ls_restr."] = {k: d.get(k, ["?"] * _nrows(cats, "_refine_ls_restr.")) for k in desired}
 
 
 def _fix_pdbx_database_status(cats: dict, pdb_id: str) -> None:
@@ -494,9 +517,7 @@ def _fix_entity_poly_order(cats: dict) -> None:
         else:
             # set_mmcif_category path: embedded newlines (gemmi adds semicolons)
             if isinstance(val, list):
-                result[seq_key] = [
-                    _seq_wrap(v) if v not in ("?", ".") else v for v in val
-                ]
+                result[seq_key] = [_seq_wrap(v) if v not in ("?", ".") else v for v in val]
             else:
                 result[seq_key] = _seq_wrap(str(val))
     cats["_entity_poly."] = result
@@ -660,11 +681,7 @@ def _fix_entity_columns(cats: dict, st: gemmi.Structure, pdb_lines: list[str]) -
     entity_map = {ent.name: ent for ent in st.entities}
     # Count water residues
     water_total = sum(
-        1
-        for model in st
-        for chain in model
-        for res in chain
-        if res.entity_type == gemmi.EntityType.Water
+        1 for model in st for chain in model for res in chain if res.entity_type == gemmi.EntityType.Water
     )
 
     # Map entity_id → residue code for non-polymers using _atom_site data
@@ -705,11 +722,7 @@ def _fix_entity_columns(cats: dict, st: gemmi.Structure, pdb_lines: list[str]) -
             if rcode and rcode in formul:
                 nmol = str(formul[rcode][0])
             else:
-                nmol = (
-                    str(nonpoly_count.get(str(eid), 1))
-                    if str(eid) in nonpoly_count
-                    else "?"
-                )
+                nmol = str(nonpoly_count.get(str(eid), 1)) if str(eid) in nonpoly_count else "?"
         src_methods.append(src)
         descriptions.append(desc)
         formula_weights.append(fw)
@@ -942,14 +955,10 @@ def _fix_struct_mon_prot_cis(cats: dict) -> None:
         new_d["auth_comp_id"] = list(new_d.get("label_comp_id", ["?"] * n))
     # pdbx_auth_comp_id_2 = pdbx_label_comp_id_2 if missing
     if not any(v not in ("?", None) for v in new_d.get("pdbx_auth_comp_id_2", [])):
-        new_d["pdbx_auth_comp_id_2"] = list(
-            new_d.get("pdbx_label_comp_id_2", ["?"] * n)
-        )
+        new_d["pdbx_auth_comp_id_2"] = list(new_d.get("pdbx_label_comp_id_2", ["?"] * n))
     # Format omega angle to 2 decimal places
     if "pdbx_omega_angle" in new_d:
-        new_d["pdbx_omega_angle"] = [
-            _fmt_float(v, 2) for v in new_d["pdbx_omega_angle"]
-        ]
+        new_d["pdbx_omega_angle"] = [_fmt_float(v, 2) for v in new_d["pdbx_omega_angle"]]
     cats["_struct_mon_prot_cis."] = new_d
 
 
@@ -990,12 +999,8 @@ def _fix_struct_sheet_range(cats: dict) -> None:
             new_d[k] = ["?"] * n
     # Copy auth fields from label if missing
     for prefix in ("beg", "end"):
-        if not any(
-            v not in ("?", None) for v in new_d.get(f"{prefix}_auth_comp_id", [])
-        ):
-            new_d[f"{prefix}_auth_comp_id"] = list(
-                new_d.get(f"{prefix}_label_comp_id", ["?"] * n)
-            )
+        if not any(v not in ("?", None) for v in new_d.get(f"{prefix}_auth_comp_id", [])):
+            new_d[f"{prefix}_auth_comp_id"] = list(new_d.get(f"{prefix}_label_comp_id", ["?"] * n))
     cats["_struct_sheet_range."] = new_d
 
 
@@ -1081,9 +1086,7 @@ def _fix_refine(cats: dict, pdb_id: str, pdb_lines: list[str]) -> None:
     d.setdefault("details", "?")
     d.setdefault("pdbx_starting_model", "?")
     d.setdefault("pdbx_isotropic_thermal_model", "?")
-    d["pdbx_stereochemistry_target_values"] = remark3.get(
-        "pdbx_stereochemistry_target_values", "?"
-    )
+    d["pdbx_stereochemistry_target_values"] = remark3.get("pdbx_stereochemistry_target_values", "?")
     d.setdefault("pdbx_stereochem_target_val_spec_case", "?")
     d.setdefault("pdbx_R_Free_selection_details", "?")
     d.setdefault("pdbx_overall_ESU_R", "?")
@@ -1290,9 +1293,7 @@ def _fix_exptl_crystal_grow(cats: dict, pdb_lines: list[str]) -> None:
         elif in_cond:
             # Continuation line: PDB REMARK content starts at col 11 (0-indexed)
             content = line[11:].rstrip() if len(line) > 11 else ""
-            if content and not re.match(
-                r"(SOLVENT|MATTHEWS|CRYSTAL)", content.lstrip()
-            ):
+            if content and not re.match(r"(SOLVENT|MATTHEWS|CRYSTAL)", content.lstrip()):
                 remark280_lines.append(content)
             else:
                 in_cond = False
@@ -1327,8 +1328,7 @@ def _fix_exptl_crystal_grow(cats: dict, pdb_lines: list[str]) -> None:
     cats["_exptl_crystal_grow."] = {
         k: d.get(k, "?" if n == 1 else ["?"] * n)
         for k in desired
-        if k in d
-        or k in ("method", "temp", "temp_details", "pdbx_pH_range", "pdbx_details")
+        if k in d or k in ("method", "temp", "temp_details", "pdbx_pH_range", "pdbx_details")
     }
 
 
@@ -1374,9 +1374,7 @@ def _fix_pdbx_struct_assembly(cats: dict) -> None:
     if "oligomeric_details" in d:
         v = d["oligomeric_details"]
         d["oligomeric_details"] = (
-            v.upper()
-            if isinstance(v, str)
-            else [x.upper() if isinstance(x, str) else x for x in v]
+            v.upper() if isinstance(v, str) else [x.upper() if isinstance(x, str) else x for x in v]
         )
     # oligomeric_count should be ?
     if "oligomeric_count" in d:
@@ -1508,9 +1506,7 @@ def _fix_diffrn_source(cats: dict) -> None:
     # (single wavelength experiment → pdbx_wavelength; multi → pdbx_wavelength_list)
     wl_list = d.get("pdbx_wavelength_list", "?")
     # Strip surrounding quotes, brackets (gemmi sometimes wraps in ['1.1'])
-    wl_list_str = (
-        str(wl_list).strip("'\"[]") if wl_list not in (None, "?", ".") else "?"
-    )
+    wl_list_str = str(wl_list).strip("'\"[]") if wl_list not in (None, "?", ".") else "?"
     if wl_list_str != "?" and "," not in wl_list_str:
         # Single wavelength: move to pdbx_wavelength, clear list
         d["pdbx_wavelength"] = wl_list_str
@@ -1695,17 +1691,11 @@ def _fix_pdbx_struct_sheet_hbond(cats: dict) -> None:
     # Fill auth_atom_id = label_atom_id, auth_comp_id = label_comp_id if missing
     for rng in ("range_1", "range_2"):
         if not any(v != "?" for v in new_d.get(f"{rng}_auth_atom_id", [])):
-            new_d[f"{rng}_auth_atom_id"] = list(
-                new_d.get(f"{rng}_label_atom_id", ["?"] * n)
-            )
+            new_d[f"{rng}_auth_atom_id"] = list(new_d.get(f"{rng}_label_atom_id", ["?"] * n))
         if not any(v != "?" for v in new_d.get(f"{rng}_auth_comp_id", [])):
-            new_d[f"{rng}_auth_comp_id"] = list(
-                new_d.get(f"{rng}_label_comp_id", ["?"] * n)
-            )
+            new_d[f"{rng}_auth_comp_id"] = list(new_d.get(f"{rng}_label_comp_id", ["?"] * n))
         if not any(v != "?" for v in new_d.get(f"{rng}_auth_asym_id", [])):
-            new_d[f"{rng}_auth_asym_id"] = list(
-                new_d.get(f"{rng}_label_asym_id", ["?"] * n)
-            )
+            new_d[f"{rng}_auth_asym_id"] = list(new_d.get(f"{rng}_label_asym_id", ["?"] * n))
     cats["_pdbx_struct_sheet_hbond."] = new_d
 
 
@@ -1834,9 +1824,7 @@ def _add_revision_history(
         except ValueError:
             continue
         try:
-            rev_date = datetime.datetime.strptime(date_str, "%d-%b-%y").strftime(
-                "%Y-%m-%d"
-            )
+            rev_date = datetime.datetime.strptime(date_str, "%d-%b-%y").strftime("%Y-%m-%d")
         except ValueError:
             rev_date = "?"
         revisions.append((ordinal, "Structure model", rev_date))
@@ -2374,10 +2362,7 @@ def _add_refine_hist(cats: dict, pdb_lines: list[str], st: gemmi.Structure) -> N
                         seen_sub.add(sc)
                         for r in subchain:
                             na = sum(1 for _ in r)
-                            if (
-                                entity
-                                and entity.entity_type == gemmi.EntityType.Polymer
-                            ):
+                            if entity and entity.entity_type == gemmi.EntityType.Polymer:
                                 if entity.polymer_type in (
                                     gemmi.PolymerType.PeptideL,
                                     gemmi.PolymerType.PeptideD,
@@ -2385,9 +2370,7 @@ def _add_refine_hist(cats: dict, pdb_lines: list[str], st: gemmi.Structure) -> N
                                     n_protein += na
                                 else:
                                     n_nucleic += na
-                            elif (
-                                entity and entity.entity_type == gemmi.EntityType.Water
-                            ):
+                            elif entity and entity.entity_type == gemmi.EntityType.Water:
                                 n_solvent += na
                             else:
                                 n_ligand += na
@@ -2465,9 +2448,7 @@ def _add_refine_ls_shell(cats: dict, pdb_lines: list[str]) -> None:
     }
 
 
-def _add_pdbx_unobs_or_zero_occ_residues(
-    cats: dict, pdb_lines: list[str], st: gemmi.Structure
-) -> None:
+def _add_pdbx_unobs_or_zero_occ_residues(cats: dict, pdb_lines: list[str], st: gemmi.Structure) -> None:
     missing: list[dict[str, str]] = []
     past_header = False
     in_r465 = False
@@ -2542,9 +2523,7 @@ def _add_pdbx_unobs_or_zero_occ_residues(
     }
 
 
-def _add_pdbx_unobs_or_zero_occ_atoms(
-    cats: dict, pdb_lines: list[str], st: gemmi.Structure
-) -> None:
+def _add_pdbx_unobs_or_zero_occ_atoms(cats: dict, pdb_lines: list[str], st: gemmi.Structure) -> None:
     """Parse REMARK 470 (missing atoms) and build _pdbx_unobs_or_zero_occ_atoms."""
     atom_records: list[dict] = []
     past_header = False
@@ -2556,11 +2535,7 @@ def _add_pdbx_unobs_or_zero_occ_atoms(
         if re.match(r"M\s+RES\s+C\s*SSEQI\s+ATOMS", text, re.I):
             past_header = True
             continue
-        if (
-            past_header
-            and text
-            and not re.match(r"MISSING|THE\s|REMARK|^$", text, re.I)
-        ):
+        if past_header and text and not re.match(r"MISSING|THE\s|REMARK|^$", text, re.I):
             # Format: [M] RES C SSEQ  ATOMS...
             parts = text.split()
             if not parts:
@@ -2615,9 +2590,7 @@ def _add_pdbx_unobs_or_zero_occ_atoms(
     )
 
     for i, rec in enumerate(atom_records, 1):
-        label_asym, label_seq = seq_map.get(
-            (rec["chain"], rec["seq"]), (rec["chain"], "?")
-        )
+        label_asym, label_seq = seq_map.get((rec["chain"], rec["seq"]), (rec["chain"], "?"))
         ids.append(str(i))
         models.append("1")
         poly_flags.append("Y")
@@ -3177,9 +3150,7 @@ def _cif_quote(s: str) -> str:
     if not s:
         return '""'
     # Already properly quoted (starts and ends with the same quote char)
-    if (s.startswith('"') and s.endswith('"')) or (
-        s.startswith("'") and s.endswith("'")
-    ):
+    if (s.startswith('"') and s.endswith('"')) or (s.startswith("'") and s.endswith("'")):
         return s
     # Already a semicolon block
     if s.startswith(";"):
@@ -3425,9 +3396,7 @@ def main() -> None:
         output_dir = Path(args.output)
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        pdb_files = sorted(
-            p for p in input_path.iterdir() if p.is_file() and p.suffix == ".pdb"
-        )
+        pdb_files = sorted(p for p in input_path.iterdir() if p.is_file() and p.suffix == ".pdb")
         logger.debug(f"Found {len(pdb_files)} pdb files in {input_path}")
 
         id_gen = _generate_four_digit_ids()
@@ -3436,18 +3405,12 @@ def main() -> None:
             match = re.search(r"^[A-Za-z0-9]{4}$", pdb_file.stem)
             if match:
                 pdbid = match.group(0).lower()
-                logger.debug(
-                    f"Extracted 4-digit ID {pdbid} from filename {pdb_file.name}"
-                )
+                logger.debug(f"Extracted 4-digit ID {pdbid} from filename {pdb_file.name}")
             else:
                 pdbid = next(id_gen)
-                logger.info(
-                    f"The filename of {pdb_file.name} is not 4-character, using generated ID {pdbid}"
-                )
+                logger.info(f"The filename of {pdb_file.name} is not 4-character, using generated ID {pdbid}")
             output_path = output_dir / f"{pdbid}.cif"
-            logger.debug(
-                f"Converting {pdb_file} to {output_path} with a 4−digit ID {pdbid}"
-            )
+            logger.debug(f"Converting {pdb_file} to {output_path} with a 4−digit ID {pdbid}")
             pdb_to_cif(
                 str(pdb_file),
                 str(output_path),
