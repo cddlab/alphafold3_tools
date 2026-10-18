@@ -22,6 +22,7 @@ dependencies = [
     { name = "numpy" },
     { name = "pip" },
     { name = "rdkit" },
+    { name = "requests" },
     { name = "scipy" },
 ]
 
@@ -46,6 +47,7 @@ requires-dist = [
     { name = "numpy", specifier = ">=2.0.1" },
     { name = "pip" },
     { name = "rdkit", specifier = ">=2024.3.2" },
+    { name = "requests", specifier = ">=2.32" },
     { name = "scipy", specifier = ">=1.14.0" },
 ]
 

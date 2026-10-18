@@ -4,7 +4,7 @@ version = "0.5.5"
 description = "Toolkit for alphafold3 input and output files"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = ["biopython>=1.85", "rdkit>=2024.3.2", "gemmi>=0.7.5", "matplotlib", "pip", "loguru", "numpy>=2.0.1", "scipy>=1.14.0"]
+dependencies = ["biopython>=1.85", "rdkit>=2024.3.2", "gemmi>=0.7.5", "matplotlib", "pip", "loguru", "numpy>=2.0.1", "scipy>=1.14.0", "requests>=2.32"]
 classifiers = [
     "Programming Language :: Python :: 3",
     "Operating System :: OS Independent",
@@ -53,7 +53,7 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "ty>=0.0.76",
+    "ty>=0.0.89",
     "notebook>=7.6.2",
     "pandas>=3.0.5",
     "pytest>=9.1.1",
