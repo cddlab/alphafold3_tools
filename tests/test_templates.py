@@ -8,8 +8,11 @@ from tempfile import TemporaryDirectory
 import gemmi
 import pytest
 
+import alphafold3tools.pdb_download as pdb_download
+import alphafold3tools.searchtemplates as searchtemplates
 import alphafold3tools.structure_stores as structure_stores
 from alphafold3tools.msatojson import to_json
+from alphafold3tools.pdb_download import DownloadLimitReachedError, RemoteFileNotFoundError
 from alphafold3tools.searchtemplates import (
     PROTEIN_CHAIN,
     Template,
@@ -17,7 +20,154 @@ from alphafold3tools.searchtemplates import (
     _download_mmcif_file_for_pdbid,
     _parse_hit_metadata_with_gemmi,
     parse_fasta,
+    search_templates_with_hits,
 )
+
+_PREFILTER_QUERY = "MKTAYIAKQRQISFVKSHFSRQ"
+# One exact copy of the query (rejected by max_subsequence_ratio), one hit that
+# is too short (rejected by min_hit_length) and two genuine candidates.
+_PREFILTER_A3M = textwrap.dedent(f"""\
+    >1abc_A/1-22 [subseq from] mol:protein length:22  EXACT COPY
+    {_PREFILTER_QUERY}
+    >2def_A/1-5 [subseq from] mol:protein length:30  TOO SHORT
+    MKTAY-----------------
+    >3ghi_A/1-22 [subseq from] mol:protein length:40  CANDIDATE
+    MKTAYIAKQRQISFVKSHFSRA
+    >4jkl_A/1-22 [subseq from] mol:protein length:40  CANDIDATE
+    MKTAYIAKQRQISFVKSHFSRV
+    """)
+
+
+class _RecordingMapping(dict):
+    """An empty mmCIF mapping that records which targets were requested."""
+
+    def __init__(self):
+        super().__init__()
+        self.requested: list[str] = []
+
+    def __getitem__(self, key):
+        self.requested.append(key)
+        return super().__getitem__(key)
+
+
+class _LimitReachedStore(structure_stores.StructureStore):
+    """A store whose download budget is already exhausted."""
+
+    def __init__(self):
+        super().__init__({})
+        self.requested: list[str] = []
+
+    def get_mmcif_str(self, target_name: str) -> str:
+        self.requested.append(target_name)
+        raise DownloadLimitReachedError("Reached the maximum number of mmCIF downloads.")
+
+
+def test_from_hmmsearch_a3m_skips_structures_of_prefiltered_hits():
+    """Hits rejectable from the hmmsearch alignment alone must not be fetched."""
+    mapping = _RecordingMapping()
+    templates = Templates.from_hmmsearch_a3m(
+        query_sequence=_PREFILTER_QUERY,
+        a3m=_PREFILTER_A3M,
+        max_template_date=datetime.date(2099, 12, 31),
+        max_subsequence_ratio=0.95,
+        structure_store=structure_stores.StructureStore(mapping),
+    )
+    assert templates.num_hits == 0
+    assert mapping.requested == ["3ghi", "4jkl"]
+
+
+_1BJP_SEQUENCE = "PIAQIHILEGRSDEQKETLIREVSEAISRSLDAPLTSVRVIITEMAKGHFGIGGELASKVRR"
+# A point mutant of 1BJP chain A, so that 1BJP is not an exact subsequence.
+_DOWNLOAD_QUERY = "W" + _1BJP_SEQUENCE[1:]
+_DOWNLOAD_PADDING = "-" * (len(_DOWNLOAD_QUERY) - 12)
+# 1bjp is accepted; 4zz4 and 7kyz are rejected by max_template_date (2000-01-01);
+# 9zzz does not exist on the server.
+_DOWNLOAD_HMMSEARCH_A3M = textwrap.dedent(f"""\
+    >1bjp_A/1-62 [subseq from] mol:protein length:62  TAUTOMERASE
+    {_1BJP_SEQUENCE}
+    >4zz4_A/1-12 [subseq from] mol:protein length:124  REJECTED
+    WWWWWWWWWWWW{_DOWNLOAD_PADDING}
+    >7kyz_A/1-12 [subseq from] mol:protein length:188  REJECTED
+    WWWWWWWWWWWW{_DOWNLOAD_PADDING}
+    >9zzz_A/1-12 [subseq from] mol:protein length:100  MISSING
+    WWWWWWWWWWWW{_DOWNLOAD_PADDING}
+    """)
+
+
+class TestSearchTemplatesWithDownload:
+    """search_templates_with_hits(download_missing_structures=True) keeps only used files."""
+
+    @pytest.fixture
+    def download_calls(self, monkeypatch):
+        calls: list[str] = []
+
+        def fake_download(pdb_id, dest_dir):
+            calls.append(pdb_id)
+            src = Path(__file__).parent.parent / "testfiles" / "mmcif_files" / f"{pdb_id.upper()}.cif"
+            if not src.exists():
+                raise RemoteFileNotFoundError(f"Failed to download the mmCIF file for {pdb_id}.")
+            dest = Path(dest_dir) / f"{pdb_id}.cif"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy(src, dest)
+            return dest
+
+        monkeypatch.setattr(pdb_download, "download_mmcif", fake_download)
+        monkeypatch.setattr(searchtemplates, "run_hmmsearch_with_a3m", lambda **kwargs: _DOWNLOAD_HMMSEARCH_A3M)
+        return calls
+
+    @staticmethod
+    def _search(templates_dir: Path):
+        return search_templates_with_hits(
+            msa_a3m_string=f">query\n{_DOWNLOAD_QUERY}\n",
+            pdb_database_path=templates_dir,
+            seqres_database_path="pdb_seqres.txt",  # unused: hmmsearch is stubbed
+            max_template_date=datetime.date(2000, 1, 1),
+            hmmbuild_binary_path="hmmbuild",
+            hmmsearch_binary_path="hmmsearch",
+            download_missing_structures=True,
+        )
+
+    @staticmethod
+    def _with_preexisting_7kyz(tmp_path: Path) -> Path:
+        templates_dir = tmp_path / "templates" / "foo"
+        templates_dir.mkdir(parents=True)
+        shutil.copy(Path(__file__).parent.parent / "testfiles" / "mmcif_files" / "7KYZ.cif", templates_dir / "7kyz.cif")
+        return templates_dir
+
+    def test_keeps_only_used_and_preexisting_files(self, download_calls, tmp_path):
+        templates_dir = self._with_preexisting_7kyz(tmp_path)
+
+        templates_list, hits_meta = self._search(templates_dir)
+
+        assert hits_meta == [("1bjp", "A")]
+        assert len(templates_list) == 1
+        assert download_calls == ["1bjp", "4zz4", "9zzz"]
+        assert sorted(p.name for p in templates_dir.iterdir()) == ["1bjp.cif", "7kyz.cif"]
+
+    def test_removes_downloads_when_search_fails(self, download_calls, monkeypatch, tmp_path):
+        templates_dir = self._with_preexisting_7kyz(tmp_path)
+
+        def broken_mmcifcontent(*args, **kwargs):
+            raise RuntimeError("broken structure")
+
+        monkeypatch.setattr(searchtemplates, "mmcifcontent", broken_mmcifcontent)
+        with pytest.raises(RuntimeError, match="broken structure"):
+            self._search(templates_dir)
+
+        assert sorted(p.name for p in templates_dir.iterdir()) == ["7kyz.cif"]
+
+
+def test_from_hmmsearch_a3m_stops_when_download_limit_is_reached():
+    store = _LimitReachedStore()
+    templates = Templates.from_hmmsearch_a3m(
+        query_sequence=_PREFILTER_QUERY,
+        a3m=_PREFILTER_A3M,
+        max_template_date=datetime.date(2099, 12, 31),
+        max_subsequence_ratio=0.95,
+        structure_store=store,
+    )
+    assert templates.num_hits == 0
+    assert store.requested == ["3ghi"]
 
 
 def test_parse_hit_metadata_with_gemmi():

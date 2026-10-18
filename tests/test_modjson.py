@@ -12,6 +12,7 @@ from alphafold3tools.modjson import (
     add_userccd,
     fix_sequence_ids,
     modify_name,
+    modjson,
     purge_ligand,
     read_json_data,
     remove_ccdcodes,
@@ -604,6 +605,72 @@ class TestAddTemplates:
                 seqres_database_path=str(tmp_path / "missing_seqres.txt"),
                 hmmbuild_binary_path=str(hmmbuild),
                 hmmsearch_binary_path=str(hmmbuild),
+            )
+
+    def test_modjson_downloads_structures_into_templates_dir(self, monkeypatch, tmp_path):
+        import alphafold3tools.pdb_download as pdb_download
+        import alphafold3tools.searchtemplates as st
+
+        _, _, hmmbuild = self._valid_search_paths(tmp_path)
+        input_json = tmp_path / "in" / "bar.json"
+        input_json.parent.mkdir()
+        input_json.write_text(json.dumps(self._protein_data([])))
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        captured = {}
+
+        def fake_search(**kwargs):
+            captured.update(kwargs)
+            return self._fake_templates()
+
+        monkeypatch.setattr(st, "search_templates", fake_search)
+        monkeypatch.setattr(pdb_download, "resolve_seqres_database_path", lambda path: "/cache/pdb_seqres.txt")
+
+        modjson(
+            str(input_json),
+            str(out_dir / "bar_templates.json"),
+            includetemplates=True,
+            pdb_database_path=None,
+            seqres_database_path=None,
+            hmmbuild_binary_path=hmmbuild,
+            hmmsearch_binary_path=hmmbuild,
+        )
+
+        assert captured["pdb_database_path"] == str(out_dir / "templates" / "bar")
+        assert captured["download_missing_structures"] is True
+        assert captured["seqres_database_path"] == "/cache/pdb_seqres.txt"
+        written = json.loads((out_dir / "bar_templates.json").read_text())
+        assert written["sequences"][0]["protein"]["templates"] == self._fake_templates()
+
+    def test_seqres_not_resolved_when_no_chain_is_searched(self, monkeypatch, tmp_path):
+        import alphafold3tools.pdb_download as pdb_download
+
+        pdb, _, hmmbuild = self._valid_search_paths(tmp_path)
+        existing = [{"mmcif": "OLD", "queryIndices": [1], "templateIndices": [2]}]
+
+        def boom(path):
+            raise AssertionError("pdb_seqres.txt must not be resolved when nothing is searched")
+
+        monkeypatch.setattr(pdb_download, "resolve_seqres_database_path", boom)
+        new_data = add_templates(
+            self._protein_data(existing),
+            pdb_database_path=pdb,
+            seqres_database_path=None,
+            hmmbuild_binary_path=hmmbuild,
+            hmmsearch_binary_path=hmmbuild,
+        )
+        assert new_data["sequences"][0]["protein"]["templates"] == existing
+
+    def test_pdb_path_required_without_download(self, monkeypatch, tmp_path):
+        _, seqres, hmmbuild = self._valid_search_paths(tmp_path)
+        self._patch_search(monkeypatch, self._fake_templates())
+        with pytest.raises(FileNotFoundError, match="pdb_database_path"):
+            add_templates(
+                self._protein_data([]),
+                pdb_database_path=None,
+                seqres_database_path=seqres,
+                hmmbuild_binary_path=hmmbuild,
+                hmmsearch_binary_path=hmmbuild,
             )
 
 

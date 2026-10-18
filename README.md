@@ -87,7 +87,7 @@ For example, processing a two-chain complex `testcomplex.a3m` with `-o /path/to/
 
 #### Template search (`--include_templates`)
 
-From version 0.2.0, templates can be also added to the output JSON file. Use the `--include_templates` option to include templates. The directory path `/path/to/mmcif_files` containing mmCIF files and the corresponding `pdb_seqres.txt` file must be specified with the `--pdb_database_path` and `--seqres_database_path` options, respectively.
+From version 0.2.0, templates can be also added to the output JSON file. Use the `--include_templates` option to include templates. The directory path `/path/to/mmcif_files` containing mmCIF files and the corresponding `pdb_seqres.txt` file can be specified with the `--pdb_database_path` and `--seqres_database_path` options, respectively. If they are omitted, only the files that are needed are downloaded from the wwPDB (see [Downloading the databases automatically](#downloading-the-databases-automatically)).
 
 - `--max_template_date` option can be used to set the maximum template date. The default value is `2099-09-30`, which means no filtering based on template date. **If you want to the same results as AlphaFold3, set this value to `2021-09-30`.**
 - `--max_subsequence_ratio` option can be used to set the maximum subsequence ratio for template filtering. The default value is `0.95` (same as the default value of AlphaFold3). However, if you want to include all templates regardless of the subsequence ratio, set this option to `1.0`.
@@ -118,8 +118,21 @@ af3tools msatojson -i input.a3m -o output.json \
 > - `--hmmbuild_binary_path` and `--hmmsearch_binary_path` options can be used to specify the paths to the `hmmbuild` and `hmmsearch` binaries, respectively, if they are not in your PATH.
 > - `--save_hmmsto` option saves the intermediate hmmsearch Stockholm (`.sto`) file. When the input a3m contains multiple protein chains, one file is written per chain, named `{name}_{chain_id}.hmmsearch.sto` (e.g. `myprotein_A.hmmsearch.sto`, `myprotein_C.hmmsearch.sto`). Files are written to the same directory as the output JSON file.
 > - When processing a directory with `--include_templates`, each hmmsearch subprocess uses 4 CPU cores by default, and the number of parallel workers is automatically capped to `cpu_count ÷ 4` to avoid CPU oversubscription.
-> - The `pdb_seqres.txt` file can be downloaded from [wwPDB](https://files.rcsb.org/pub/pdb/derived_data/pdb_seqres.txt). The file size is about 356 MB (as of Dec. 2025).
+> - The `pdb_seqres.txt` file can be downloaded from [wwPDB](https://files.wwpdb.org/pub/pdb/derived_data/pdb_seqres.txt). The file size is about 413 MB (as of Oct. 2026).
 >
+
+##### Downloading the databases automatically
+
+`--pdb_database_path` and `--seqres_database_path` are optional. When either of them is omitted, the required files are downloaded from the wwPDB:
+
+- **`--seqres_database_path` omitted**: `pdb_seqres.txt` is downloaded (about 68 MB compressed) into the user cache directory, `$XDG_CACHE_HOME/alphafold3tools/` (`~/.cache/alphafold3tools/` by default), and reused by later runs. It is downloaded again when the cached copy is older than 7 days; if that fails, the existing copy is used with a warning. If there is no cached copy and the download fails, the command exits with an error.
+- **`--pdb_database_path` omitted**: the mmCIF files of the template candidates are downloaded one by one, in the order of the hmmsearch hits, until four templates pass the filters (the same templates as with a local database). They are saved in `templates/<input name>/` in the same directory as the output JSON file (e.g. `templates/foo/` for `foo.a3m`). Downloaded candidates that are not used as templates are removed, so at most four mmCIF files per protein chain are kept. At most 20 mmCIF files are downloaded per chain. Entries that do not exist on the server are skipped, but if an mmCIF file cannot be downloaded for another reason (e.g. a network problem), processing of that input stops with an error instead of producing a JSON file without templates.
+
+```bash
+# Only HMMER is required locally; pdb_seqres.txt and the template mmCIF files are downloaded.
+af3tools msatojson -i foo.a3m -o out/foo.json --include_templates
+# -> out/foo.json, out/templates/foo/*.cif
+```
 
 #### Guessing the homo-oligomer count from templates (`--guess_copies`)
 
@@ -127,7 +140,7 @@ By default, the number of copies of each protein chain in the output JSON (the l
 
 For each protein sequence, `msatojson` looks up the first template hit (PDB ID + chain ID), reads that structure's biological assembly information from the mmCIF file, and counts how many copies of the same polymer entity it contains. That count becomes the number of chain IDs assigned to the sequence, **overriding** the a3m header stoichiometry. For example, if the first template of a chain is the homohexamer `1BJP`, that chain is assigned six IDs (`"id": ["A", "B", "C", "D", "E", "F"]`). When there are multiple protein sequences, the chain-ID letters are shifted so that IDs never overlap between sequences. If no template is found, or the structure has no usable biological assembly information, the count falls back to `1` (monomer).
 
-- `--guess_copies` performs a template search, so it **requires `--include_templates` and `--pdb_database_path`** (as well as `--seqres_database_path`); the command exits with an error if these are missing.
+- `--guess_copies` performs a template search, so it **requires `--include_templates`**; the command exits with an error if it is missing. When `--pdb_database_path` is omitted, the first template's mmCIF file is read from the downloaded `templates/<input name>/` directory.
 
 ```bash
 # Example command to guess the number of chain copies from templates
@@ -231,11 +244,11 @@ af3tools modjson \
     [--guess_copies] [--save_hmmsto] [-O/--overwrite-templates]
 ```
 
-- `--include_templates`: Search and add template information to each protein chain. Requires `--pdb_database_path`, `--seqres_database_path`, and the HMMER binaries (`--hmmbuild_binary_path`/`--hmmsearch_binary_path`, defaulting to the ones on `PATH`).
+- `--include_templates`: Search and add template information to each protein chain. Requires the HMMER binaries (`--hmmbuild_binary_path`/`--hmmsearch_binary_path`, defaulting to the ones on `PATH`). `--pdb_database_path` and `--seqres_database_path` are optional: when omitted, the files are downloaded from the wwPDB exactly as in `msatojson` (see [Downloading the databases automatically](#downloading-the-databases-automatically)); the template mmCIF files are saved in `templates/<input name>/` next to the output JSON file, where `<input name>` is the input JSON file name without its extension.
 - `--max_template_date` / `--max_subsequence_ratio`: Same as in `msatojson`. Setting `--max_subsequence_ratio 1.0` disables subsequence-ratio filtering.
 - `-O` / `--overwrite-templates`: Overwrite existing template information. By default, a protein chain that already has a non-empty `templates` list is **preserved (skipped)**; only chains with empty/absent templates are searched. With `-O`, every protein chain is re-searched and its templates replaced. This option only affects template overwriting; other entities are unaffected.
 - `--save_hmmsto`: Save the intermediate hmmsearch Stockholm (`.sto`) file per chain, named `{name}_{chain_id}.hmmsearch.sto`, in the output JSON's directory.
-- `--guess_copies`: Infer the homo-oligomer count of each protein chain from its first template's biological assembly and set the chain's copy count (`id` list length) accordingly, overriding the existing count. Requires `--include_templates` and `--pdb_database_path`. Chain ids are renumbered contiguously afterwards.
+- `--guess_copies`: Infer the homo-oligomer count of each protein chain from its first template's biological assembly and set the chain's copy count (`id` list length) accordingly, overriding the existing count. Requires `--include_templates`. Chain ids are renumbered contiguously afterwards.
 
 > [!NOTE]
 > `--write_msapath` is available only in `msatojson`; `modjson` keeps the MSA representation of the input JSON unchanged.

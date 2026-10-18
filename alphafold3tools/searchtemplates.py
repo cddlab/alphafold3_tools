@@ -12,7 +12,6 @@ from typing import IO, Any, Final, TypeAlias
 
 import gemmi
 import numpy as np
-import requests
 from loguru import logger
 
 import alphafold3tools.structure_stores as structure_stores
@@ -21,6 +20,12 @@ from alphafold3tools.msa_conversion import (
     convert_a3m_to_stockholm_cpp,
     fasta_string_iterator,
     parse_fasta_include_descriptions,
+)
+from alphafold3tools.pdb_download import (
+    DownloadError,
+    DownloadingStructureStore,
+    DownloadLimitReachedError,
+    download_mmcif,
 )
 from alphafold3tools.structure.mmcif_parser import mmcifcontent
 
@@ -530,21 +535,14 @@ class Hit:
             )
             return False
 
-        # Exclude hits which are large duplicates of the query_sequence.
-        if (
-            max_subsequence_ratio is not None
-            and self.length_ratio > max_subsequence_ratio
+        # Exclude hits which are large duplicates of the query_sequence or too short.
+        if _rejected_without_structure(
+            hit_name=self.full_name,
+            hmmsearch_sequence=self.hmmsearch_sequence,
+            query_sequence=self.query_sequence,
+            max_subsequence_ratio=max_subsequence_ratio,
+            min_hit_length=min_hit_length,
         ):
-            if self.matching_sequence in self.query_sequence:
-                logger.debug(
-                    f"Hit {self.full_name} is rejected due to being a large subsequence of the query. "
-                    f"(length ratio {self.length_ratio:.2f} > {max_subsequence_ratio})"
-                )
-                return False
-
-        # Exclude hits which are too short.
-        if min_hit_length is not None and len(self.matching_sequence) < min_hit_length:
-            logger.debug(f"Hit {self.full_name} is too short.")
             return False
 
         # Exclude hits with unresolved residues.
@@ -561,6 +559,37 @@ class Hit:
             return False
 
         return True
+
+
+def _rejected_without_structure(
+    *,
+    hit_name: str,
+    hmmsearch_sequence: str,
+    query_sequence: str,
+    max_subsequence_ratio: float | None,
+    min_hit_length: int | None,
+) -> bool:
+    """Returns whether a hit is rejected based on its hmmsearch alignment alone.
+
+    These are the filters of Hit.keep() that do not need the template structure,
+    so they can be applied before the mmCIF is read (or downloaded).
+    """
+    matching_sequence = hmmsearch_sequence.upper().replace("-", "")
+    length_ratio = len(matching_sequence) / len(query_sequence)
+    if (
+        max_subsequence_ratio is not None
+        and length_ratio > max_subsequence_ratio
+        and matching_sequence in query_sequence
+    ):
+        logger.debug(
+            f"Hit {hit_name} is rejected due to being a large subsequence of the query. "
+            f"(length ratio {length_ratio:.2f} > {max_subsequence_ratio})"
+        )
+        return True
+    if min_hit_length is not None and len(matching_sequence) < min_hit_length:
+        logger.debug(f"Hit {hit_name} is too short.")
+        return True
+    return False
 
 
 def _filter_hits(
@@ -693,17 +722,11 @@ def _parse_hit_metadata_with_gemmi(
     return (release_date, sequence, unresolved_res_ids)
 
 
-def _download_mmcif_file_for_pdbid(
-    pdb_id: str,
-    mmcif_dir: str,
-    url: str = "https://files.rcsb.org/download",
-) -> None:
-    """Download mmCIF file from RCSB PDB if not already present.
+def _download_mmcif_file_for_pdbid(pdb_id: str, mmcif_dir: str) -> None:
+    """Download mmCIF file from the wwPDB if not already present.
     Args:
-        pdbid: PDB ID of the structure to download.
+        pdb_id: PDB ID of the structure to download.
         mmcif_dir: Directory to save the mmCIF file.
-        url: Base URL for downloading mmCIF files.
-        use_tempdir: Whether to use a temporary directory for downloading.
     """
 
     pdb_id = pdb_id.lower()
@@ -711,17 +734,10 @@ def _download_mmcif_file_for_pdbid(
     if os.path.exists(mmcif_path):
         logger.info(f"mmCIF file for {pdb_id} already exists.")
         return
-    else:
-        full_url = f"{url}/{pdb_id}.cif"
-        response = requests.get(full_url)
-        if response.status_code == 200:
-            with open(Path(mmcif_path), "wb") as f:
-                f.write(response.content)
-            logger.info("Downloaded mmCIF file for %s.", pdb_id)
-        else:
-            logger.error(
-                f"Failed to download mmCIF file for {pdb_id}. Status code: {response.status_code}"
-            )
+    try:
+        download_mmcif(pdb_id, mmcif_dir)
+    except DownloadError as e:
+        logger.error(str(e))
 
 
 @dataclasses.dataclass(init=False)
@@ -857,6 +873,7 @@ class Templates:
         Templates object containing a list of Hits initialised from the
         structure_store metadata and a3m alignments.
         """
+        min_hit_length = 10
 
         def hit_generator(a3m: str):
             if not a3m:
@@ -866,12 +883,26 @@ class Templates:
                 pdb_id, auth_chain_id, start, end, full_length = _parse_hit_description(
                     hit_desc
                 )
+                # Skip hits that would be rejected anyway before reading (or
+                # downloading) their structure.
+                if _rejected_without_structure(
+                    hit_name=f"{pdb_id}_{auth_chain_id}",
+                    hmmsearch_sequence=hit_seq,
+                    query_sequence=query_sequence,
+                    max_subsequence_ratio=max_subsequence_ratio,
+                    min_hit_length=min_hit_length,
+                ):
+                    continue
 
-                release_date, sequence, unresolved_res_ids = (
-                    _parse_hit_metadata_with_gemmi(
-                        structure_store, pdb_id, auth_chain_id
+                try:
+                    release_date, sequence, unresolved_res_ids = (
+                        _parse_hit_metadata_with_gemmi(
+                            structure_store, pdb_id, auth_chain_id
+                        )
                     )
-                )
+                except DownloadLimitReachedError as e:
+                    logger.warning(f"{e} The remaining template candidates are skipped.")
+                    return
                 if unresolved_res_ids is None:
                     continue
                 if sequence is None:
@@ -902,7 +933,7 @@ class Templates:
             release_date_cutoff=max_template_date,
             max_subsequence_ratio=max_subsequence_ratio,
             min_align_ratio=0.1,
-            min_hit_length=10,
+            min_hit_length=min_hit_length,
             deduplicate_sequences=True,
             max_hits=4,
         )
@@ -1294,6 +1325,7 @@ def search_templates_with_hits(
     max_subsequence_ratio: float | None = 0.95,
     hmmbuild_binary_path: str | None = shutil.which("hmmbuild"),
     hmmsearch_binary_path: str | None = shutil.which("hmmsearch"),
+    download_missing_structures: bool = False,
 ) -> tuple[list[dict[str, Any]], list[tuple[str, str]]]:
     """Searches for templates and also returns each hit's (PDB ID, chain ID).
 
@@ -1303,7 +1335,9 @@ def search_templates_with_hits(
 
     Args:
         msa_a3m_string: An a3m string containing the MSA for the query sequence.
-        pdb_database_path: Path to the pdb_seqres.txt database file.
+        pdb_database_path: Directory of mmCIF files used as the template database.
+            With download_missing_structures, the directory that missing mmCIF
+            files are downloaded into.
         seqres_database_path: Path to the seqres database file.
         hmmsearch_sto_output_path: If provided, the hmmsearch .sto output file is
             copied to this path after the search completes.
@@ -1311,6 +1345,9 @@ def search_templates_with_hits(
         max_subsequence_ratio: The maximum ratio of the length of a template subsequence to the length of the query sequence.
         hmmbuild_binary_path: Path to the hmmbuild binary. If None, uses "hmmbuild" from PATH.
         hmmsearch_binary_path: Path to the hmmsearch binary. If None, uses "hmmsearch" from PATH.
+        download_missing_structures: If True, mmCIF files missing from
+            pdb_database_path are downloaded from the wwPDB as the hits are
+            evaluated. Downloaded files that are not used as templates are removed.
     Returns:
         A tuple ``(templates_list, hits_meta)`` where ``templates_list`` is a
         list of templates in dictionary format and ``hits_meta`` is a list of
@@ -1322,30 +1359,40 @@ def search_templates_with_hits(
         raise ValueError("hmmbuild or hmmsearch not found in PATH")
     if pdb_database_path is None:
         raise ValueError("pdb_database_path must be provided.")
-    structure_store = structure_stores.StructureStore(pdb_database_path)
+    if download_missing_structures:
+        structure_store = DownloadingStructureStore(pdb_database_path)
+    else:
+        structure_store = structure_stores.StructureStore(pdb_database_path)
     if seqres_database_path is None:
         raise ValueError("seqres_database_path must be provided.")
 
     query_sequence = parse_fasta(msa_a3m_string)[0][0]
-    template_hits = Templates.from_seq_and_a3m(
-        query_sequence=query_sequence,
-        msa_a3m=msa_a3m_string,
-        max_template_date=max_template_date,
-        seqres_database_path=seqres_database_path,
-        max_subsequence_ratio=max_subsequence_ratio,
-        max_a3m_query_sequences=None,
-        structure_store=structure_store,
-        hmmbuild_binary_path=hmmbuild_binary_path,
-        hmmsearch_binary_path=hmmsearch_binary_path,
-        chain_poly_type=PROTEIN_CHAIN,
-        hmmsearch_sto_output_path=hmmsearch_sto_output_path,
-    )
+    used_pdb_ids: set[str] = set()
+    try:
+        template_hits = Templates.from_seq_and_a3m(
+            query_sequence=query_sequence,
+            msa_a3m=msa_a3m_string,
+            max_template_date=max_template_date,
+            seqres_database_path=seqres_database_path,
+            max_subsequence_ratio=max_subsequence_ratio,
+            max_a3m_query_sequences=None,
+            structure_store=structure_store,
+            hmmbuild_binary_path=hmmbuild_binary_path,
+            hmmsearch_binary_path=hmmsearch_binary_path,
+            chain_poly_type=PROTEIN_CHAIN,
+            hmmsearch_sto_output_path=hmmsearch_sto_output_path,
+        )
+        hits_with_structures = template_hits.get_hits_with_structures()
+        used_pdb_ids = {hit.pdb_id for hit, _ in hits_with_structures}
+    finally:
+        # Keep only the downloaded structures that ended up as templates.
+        if isinstance(structure_store, DownloadingStructureStore):
+            structure_store.remove_unused(used_pdb_ids)
 
     options = gemmi.cif.WriteOptions()
     options.misuse_hash = True
     options.align_loops = 20
     options.prefer_pairs = True
-    hits_with_structures = template_hits.get_hits_with_structures()
     templates = [
         Template(
             mmcif=block.as_string(options=options),
@@ -1366,12 +1413,15 @@ def search_templates(
     max_subsequence_ratio: float | None = 0.95,
     hmmbuild_binary_path: str | None = shutil.which("hmmbuild"),
     hmmsearch_binary_path: str | None = shutil.which("hmmsearch"),
+    download_missing_structures: bool = False,
 ) -> list[dict[str, Any]]:
     """Searches for templates using hmmsearch given an a3m MSA.
     The query sequence is extracted from the first line of the a3m.
     Args:
         msa_a3m_string: An a3m string containing the MSA for the query sequence.
-        pdb_database_path: Path to the pdb_seqres.txt database file.
+        pdb_database_path: Directory of mmCIF files used as the template database.
+            With download_missing_structures, the directory that missing mmCIF
+            files are downloaded into.
         seqres_database_path: Path to the seqres database file.
         hmmsearch_sto_output_path: If provided, the hmmsearch .sto output file is
             copied to this path after the search completes.
@@ -1379,6 +1429,9 @@ def search_templates(
         max_subsequence_ratio: The maximum ratio of the length of a template subsequence to the length of the query sequence.
         hmmbuild_binary_path: Path to the hmmbuild binary. If None, uses "hmmbuild" from PATH.
         hmmsearch_binary_path: Path to the hmmsearch binary. If None, uses "hmmsearch" from PATH.
+        download_missing_structures: If True, mmCIF files missing from
+            pdb_database_path are downloaded from the wwPDB as the hits are
+            evaluated. Downloaded files that are not used as templates are removed.
     Returns:
         A list of templates in dictionary format.
     Raises:
@@ -1393,5 +1446,6 @@ def search_templates(
         max_subsequence_ratio=max_subsequence_ratio,
         hmmbuild_binary_path=hmmbuild_binary_path,
         hmmsearch_binary_path=hmmsearch_binary_path,
+        download_missing_structures=download_missing_structures,
     )
     return templates_list

@@ -2,6 +2,7 @@ import concurrent.futures
 import datetime
 import os
 import shutil
+import sys
 from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
 from dataclasses import dataclass
 from pathlib import Path
@@ -10,6 +11,7 @@ from typing import Any
 from loguru import logger
 
 from alphafold3tools.log import log_setup
+from alphafold3tools.pdb_download import DownloadError, resolve_seqres_database_path, template_download_dir
 from alphafold3tools.searchtemplates import search_templates, search_templates_with_hits
 from alphafold3tools.structure.oligomer import guess_homomer_count_from_store
 from alphafold3tools.structure_stores import StructureStore
@@ -42,9 +44,7 @@ def get_residuelens_stoichiometries(lines: list[str]) -> tuple[list[int], list[i
         # get the residue length from the first sequence.
         # Always assume a monomer prediction.
         if not lines[0].startswith(">"):
-            raise ValueError(
-                "The first line of the input MSA file must start with '#' or '>'."
-            )
+            raise ValueError("The first line of the input MSA file must start with '#' or '>'.")
         residue_lens = [len(lines[1].strip())]
         stoichiometries = [1]
     return residue_lens, stoichiometries
@@ -125,15 +125,10 @@ def get_paired_and_unpaired_msa(
             else:
                 seen = True
                 continue
-            if cardinality > 1 and line.startswith(
-                ">" + "\t".join(map(str, query_seqnames)) + "\n"
-            ):
+            if cardinality > 1 and line.startswith(">" + "\t".join(map(str, query_seqnames)) + "\n"):
                 pairedflag = True
                 unpairedflag = False
-            elif (
-                any(line.startswith(f">{seq}\n") for seq in query_seqnames)
-                or line == ">query\n"
-            ):
+            elif any(line.startswith(f">{seq}\n") for seq in query_seqnames) or line == ">query\n":
                 pairedflag = False
                 unpairedflag = True
                 chain += 1
@@ -178,43 +173,29 @@ def validate_template_search_paths(
     requested. ``pdb_database_path`` is a directory of mmCIF files, while
     ``seqres_database_path`` (the SEQRES database) and ``hmmbuild_binary_path``
     (the hmmbuild executable) are files, so each is checked against its actual
-    type.
+    type. The database paths may be None, meaning that the required files are
+    downloaded from the wwPDB instead.
 
     Args:
-        pdb_database_path: Directory containing the PDB mmCIF database.
-        seqres_database_path: Path to the PDB SEQRES database file.
+        pdb_database_path: Directory containing the PDB mmCIF database, or None.
+        seqres_database_path: Path to the PDB SEQRES database file, or None.
         hmmbuild_binary_path: Path to the hmmbuild binary.
 
     Raises:
-        FileNotFoundError: if a required path is not provided or does not exist.
+        FileNotFoundError: if a given path does not exist or hmmbuild is missing.
         NotADirectoryError: if ``pdb_database_path`` exists but is not a directory.
     """
-    if pdb_database_path is None:
-        raise FileNotFoundError(
-            "pdb_database_path is required for template search but was not provided."
-        )
-    if not Path(pdb_database_path).is_dir():
-        raise NotADirectoryError(
-            f"pdb_database_path does not exist as a directory: {pdb_database_path}"
-        )
-    if seqres_database_path is None:
-        raise FileNotFoundError(
-            "seqres_database_path is required for template search but was not "
-            "provided."
-        )
-    if not Path(seqres_database_path).exists():
-        raise FileNotFoundError(
-            f"seqres_database_path does not exist: {seqres_database_path}"
-        )
+    if pdb_database_path is not None and not Path(pdb_database_path).is_dir():
+        raise NotADirectoryError(f"pdb_database_path does not exist as a directory: {pdb_database_path}")
+    if seqres_database_path is not None and not Path(seqres_database_path).exists():
+        raise FileNotFoundError(f"seqres_database_path does not exist: {seqres_database_path}")
     if hmmbuild_binary_path is None:
         raise FileNotFoundError(
             "hmmbuild_binary_path is required for template search but was not found "
             "(is hmmbuild installed and on PATH?)."
         )
     if not Path(hmmbuild_binary_path).exists():
-        raise FileNotFoundError(
-            f"hmmbuild_binary_path does not exist: {hmmbuild_binary_path}"
-        )
+        raise FileNotFoundError(f"hmmbuild_binary_path does not exist: {hmmbuild_binary_path}")
 
 
 def generate_input_json_content(
@@ -235,6 +216,7 @@ def generate_input_json_content(
     guess_copies: bool = False,
     inputmsafile: str | Path | None = None,
     msa_output_dir: Path | None = None,
+    download_missing_structures: bool = False,
 ) -> dict[str, Any]:
     """generate AlphaFold3 input JSON file.
 
@@ -248,6 +230,10 @@ def generate_input_json_content(
         includetemplates (bool): Whether to include template search results.
         savehmmsto (bool): Whether to save intermediate HMM sto files.
         pdb_database_path (str): Path to the PDB mmCIF database for template search.
+            With download_missing_structures, the directory that template mmCIF
+            files are downloaded into.
+        seqres_database_path (str | None): Path to the PDB SEQRES database. If None,
+            pdb_seqres.txt is downloaded from the wwPDB into the user cache directory.
         max_template_date (datetime.date): Maximum template date for template search.
         max_subsequence_ratio (float | None): Maximum ratio of the length of a template subsequence to the length of the query sequence.
             If a template is an exact subsequence of the query sequence and its length ratio is above this threshold, it is excluded.
@@ -261,20 +247,31 @@ def generate_input_json_content(
         guess_copies (bool): If True, guess the homo-oligomer count of each protein
             chain from the biological assembly of its first template (PDB ID + chain
             ID) and set the number of chain copies accordingly, overriding the a3m
-            header stoichiometry. Requires includetemplates and pdb_database_path.
+            header stoichiometry. Requires includetemplates.
         inputmsafile (str | Path | None): Original input a3m file path. Used as
             unpairedMsaPath when no paired MSA exists (single-chain case).
         msa_output_dir (Path | None): Directory to write MSA .a3m files when paired
             MSA exists. Required when write_msapath=True and paired MSA is present.
+        download_missing_structures (bool): If True, template mmCIF files are
+            downloaded from the wwPDB into pdb_database_path as needed.
     Returns:
         str: JSON string for AlphaFold3 input file.
     """
     if includetemplates:
         # Fail fast if the template-search inputs are missing, before running any
         # per-chain hmmbuild/hmmsearch work.
+        if pdb_database_path is None:
+            raise FileNotFoundError(
+                "pdb_database_path is required for template search; pass the download "
+                "directory with download_missing_structures=True to fetch structures "
+                "from the wwPDB."
+            )
         validate_template_search_paths(
-            pdb_database_path, seqres_database_path, hmmbuild_binary_path
+            None if download_missing_structures else pdb_database_path,
+            seqres_database_path,
+            hmmbuild_binary_path,
         )
+        seqres_database_path = resolve_seqres_database_path(seqres_database_path)
     sequences = []
     chain_id_count = 0
     null = None
@@ -287,9 +284,7 @@ def generate_input_json_content(
         first_chain_id = int_id_to_str_id(chain_id_count + 1)
         hits_meta: list[tuple[str, str]] = []
         if includetemplates:
-            logger.info(
-                f"Searching templates for chain {i + 1} with sequence length {len(query_seq)}..."
-            )
+            logger.info(f"Searching templates for chain {i + 1} with sequence length {len(query_seq)}...")
             if savehmmsto and msa_output_dir is not None:
                 sto_path = msa_output_dir / f"{name}_{first_chain_id}.hmmsearch.sto"
             else:
@@ -304,6 +299,7 @@ def generate_input_json_content(
                     max_subsequence_ratio=max_subsequence_ratio,
                     hmmbuild_binary_path=hmmbuild_binary_path,
                     hmmsearch_binary_path=hmmsearch_binary_path,
+                    download_missing_structures=download_missing_structures,
                 )
             else:
                 templates_list = search_templates(
@@ -315,6 +311,7 @@ def generate_input_json_content(
                     max_subsequence_ratio=max_subsequence_ratio,
                     hmmbuild_binary_path=hmmbuild_binary_path,
                     hmmsearch_binary_path=hmmsearch_binary_path,
+                    download_missing_structures=download_missing_structures,
                 )
         else:
             templates_list = []
@@ -322,18 +319,13 @@ def generate_input_json_content(
         # first template's biological assembly, if requested and a template exists.
         if guess_copies and hits_meta:
             pdb_id, hit_chain_id = hits_meta[0]
-            assert pdb_database_path is not None  # validated by main(); guaranteed.
-            copies = guess_homomer_count_from_store(
-                StructureStore(pdb_database_path), pdb_id, hit_chain_id
-            )
+            assert pdb_database_path is not None  # validated above; guaranteed.
+            copies = guess_homomer_count_from_store(StructureStore(pdb_database_path), pdb_id, hit_chain_id)
             logger.info(
-                f"Chain {i + 1}: guessed homo-oligomer count = {copies} "
-                f"from template {pdb_id} chain {hit_chain_id}."
+                f"Chain {i + 1}: guessed homo-oligomer count = {copies} from template {pdb_id} chain {hit_chain_id}."
             )
             stoichiometries[i] = copies
-        chain_ids = [
-            int_id_to_str_id(chain_id_count + j + 1) for j in range(stoichiometries[i])
-        ]
+        chain_ids = [int_id_to_str_id(chain_id_count + j + 1) for j in range(stoichiometries[i])]
         chain_id_count += stoichiometries[i]
         has_paired = bool(pairedmsas[i])
         if write_msapath:
@@ -346,9 +338,7 @@ def generate_input_json_content(
                 }
             else:
                 if msa_output_dir is None:
-                    raise ValueError(
-                        "msa_output_dir is required when write_msapath=True and paired MSA exists."
-                    )
+                    raise ValueError("msa_output_dir is required when write_msapath=True and paired MSA exists.")
                 unpaired_path = msa_output_dir / f"{name}_unpaired_{chain_ids[0]}.a3m"
                 paired_path = msa_output_dir / f"{name}_paired_{chain_ids[0]}.a3m"
                 unpaired_path.write_text(convert_msas_to_str(unpairedmsas[i]))
@@ -410,25 +400,29 @@ def write_input_json_file(
         includetemplates (bool): Whether to include template search results.
         savehmmsto (bool): Whether to save intermediate HMM sto files.
         pdb_database_path (str): Path to the PDB mmCIF database for template search.
+            If None, template mmCIF files are downloaded from the wwPDB into
+            ``templates/<input name>`` next to the output JSON file.
+        seqres_database_path (str): Path to the PDB SEQRES database for template
+            search. If None, pdb_seqres.txt is downloaded from the wwPDB.
         max_template_date (datetime.date): Maximum template date for template search.
         max_subsequence_ratio (float | None): Maximum ratio of the length of a template subsequence to the length of the query sequence.
         hmmbuild_binary_path (str): Path to the hmmbuild binary.
         hmmsearch_binary_path (str): Path to the hmmsearch binary.
     """
+    download_missing_structures = includetemplates and pdb_database_path is None
+    if download_missing_structures:
+        pdb_database_path = template_download_dir(Path(outputjsonfile).parent, Path(inputmsafile).stem)
+        logger.info(f"Template mmCIF files for {inputmsafile} will be downloaded into {pdb_database_path}.")
     with open(inputmsafile, "r") as f:
         lines = f.readlines()
     residue_lens, stoichiometries = get_residuelens_stoichiometries(lines)
     if len(residue_lens) != len(stoichiometries):
         raise ValueError("Length of residue_lens and stoichiometries must be the same.")
     cardinality = len(residue_lens)
-    logger.info(
-        f"The input MSA file contains {cardinality} distinct polypeptide chains."
-    )
+    logger.info(f"The input MSA file contains {cardinality} distinct polypeptide chains.")
     logger.info(f"Residue lengths: {residue_lens}")
     logger.info(f"Stoichiometries: {stoichiometries}")
-    pairedmsas, unpairedmsas = get_paired_and_unpaired_msa(
-        lines, residue_lens, cardinality
-    )
+    pairedmsas, unpairedmsas = get_paired_and_unpaired_msa(lines, residue_lens, cardinality)
     content = generate_input_json_content(
         name=f"{name}",
         cardinality=cardinality,
@@ -447,6 +441,7 @@ def write_input_json_file(
         guess_copies=guess_copies,
         inputmsafile=inputmsafile,
         msa_output_dir=Path(outputjsonfile).parent,
+        download_missing_structures=download_missing_structures,
     )
     with open(outputjsonfile, "w") as f:
         f.write(to_json(content))
@@ -507,9 +502,7 @@ def process_a3m_directory(
         output_dir: Output directory for JSON files.
     """
     if output_dir.suffix == ".json":
-        raise ValueError(
-            "Now the input is directory, so output name must be a directory."
-        )
+        raise ValueError("Now the input is directory, so output name must be a directory.")
     logger.info(f"Output directory: {output_dir}")
     output_dir.mkdir(parents=True, exist_ok=True)
     a3m_files = list(input_dir.glob("*.a3m"))
@@ -614,9 +607,7 @@ def main():
         type=str,
         default="",
     )
-    parser.add_argument(
-        "-o", "--out", help="Output directory or JSON file.", type=str, required=True
-    )
+    parser.add_argument("-o", "--out", help="Output directory or JSON file.", type=str, required=True)
     parser.add_argument(
         "-d",
         "--debug",
@@ -641,13 +632,18 @@ def main():
     )
     parser.add_argument(
         "--pdb_database_path",
-        help="Path to the PDB mmCIF database for template search.",
+        help="Path to the PDB mmCIF database for template search. If omitted, the "
+        "mmCIF files of the template structures are downloaded from the wwPDB into "
+        "templates/<input name> next to the output JSON file.",
         type=str,
         default=None,
     )
     parser.add_argument(
         "--seqres_database_path",
-        help="Path to the PDB SEQRES database for template search.",
+        help="Path to the PDB SEQRES database (pdb_seqres.txt) for template search. "
+        "If omitted, pdb_seqres.txt is downloaded from the wwPDB into the user cache "
+        "directory ($XDG_CACHE_HOME/alphafold3tools or ~/.cache/alphafold3tools) and "
+        "re-downloaded when the cached copy is older than 7 days.",
         type=str,
         default=None,
     )
@@ -691,7 +687,7 @@ def main():
         help="Guess the homo-oligomer count of each protein chain from the "
         "biological assembly of its first template (PDB ID + chain ID) and set the "
         "number of chain copies (id list length) accordingly, overriding the a3m "
-        "header stoichiometry. Requires --include_templates and --pdb_database_path.",
+        "header stoichiometry. Requires --include_templates.",
         action="store_true",
         default=False,
     )
@@ -699,15 +695,6 @@ def main():
     log_setup(args.loglevel)
     if args.guess_copies and not args.include_templates:
         parser.error("--guess_copies requires --include_templates.")
-    if args.guess_copies and args.pdb_database_path is None:
-        parser.error("--guess_copies requires --pdb_database_path.")
-    if args.include_templates:
-        # Fail fast (before reading MSAs) if any template-search path is missing.
-        validate_template_search_paths(
-            args.pdb_database_path,
-            args.seqres_database_path,
-            args.hmmbuild_binary_path,
-        )
     # Default name is the input file name without extension
     if args.name == "":
         args.name = os.path.splitext(os.path.basename(args.input))[0]
@@ -715,6 +702,26 @@ def main():
     input_path = Path(args.input)
     if not input_path.exists():
         raise FileNotFoundError(f"{input_path} does not exist.")
+    if args.include_templates:
+        # Fail fast (before reading MSAs) if any template-search path is missing.
+        validate_template_search_paths(
+            args.pdb_database_path,
+            args.seqres_database_path,
+            args.hmmbuild_binary_path,
+        )
+        if args.pdb_database_path is None:
+            logger.warning(
+                "--pdb_database_path was not specified. The mmCIF files of the template "
+                "structures will be downloaded from the wwPDB into templates/<input name> "
+                "next to the output JSON file."
+            )
+        # Resolve pdb_seqres.txt once here, before input files are processed in
+        # parallel, so that it is downloaded at most once.
+        try:
+            args.seqres_database_path = resolve_seqres_database_path(args.seqres_database_path)
+        except DownloadError as e:
+            logger.error(str(e))
+            sys.exit(1)
     out_path = Path(args.out)
     if args.max_subsequence_ratio == 1.0:
         logger.success(
@@ -738,20 +745,24 @@ def main():
             guess_copies=args.guess_copies,
         )
     else:
-        process_single_a3m_file(
-            inputmsafile=input_path,
-            outputjsonfile=out_path,
-            includetemplates=args.include_templates,
-            savehmmsto=args.save_hmmsto,
-            pdb_database_path=args.pdb_database_path,
-            seqres_database_path=args.seqres_database_path,
-            max_template_date=args.max_template_date,
-            max_subsequence_ratio=args.max_subsequence_ratio,
-            hmmbuild_binary_path=args.hmmbuild_binary_path,
-            hmmsearch_binary_path=args.hmmsearch_binary_path,
-            write_msapath=args.write_msapath,
-            guess_copies=args.guess_copies,
-        )
+        try:
+            process_single_a3m_file(
+                inputmsafile=input_path,
+                outputjsonfile=out_path,
+                includetemplates=args.include_templates,
+                savehmmsto=args.save_hmmsto,
+                pdb_database_path=args.pdb_database_path,
+                seqres_database_path=args.seqres_database_path,
+                max_template_date=args.max_template_date,
+                max_subsequence_ratio=args.max_subsequence_ratio,
+                hmmbuild_binary_path=args.hmmbuild_binary_path,
+                hmmsearch_binary_path=args.hmmsearch_binary_path,
+                write_msapath=args.write_msapath,
+                guess_copies=args.guess_copies,
+            )
+        except DownloadError as e:
+            logger.error(str(e))
+            sys.exit(1)
 
 
 if __name__ == "__main__":

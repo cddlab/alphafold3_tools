@@ -3,6 +3,7 @@ import copy
 import datetime
 import json
 import shutil
+import sys
 from argparse import ArgumentParser, RawTextHelpFormatter
 from pathlib import Path
 from typing import Literal, cast
@@ -54,9 +55,7 @@ def remove_ccdcodes(data: dict, ccdcodes_to_remove: list[str]) -> dict:
             if "ccdCodes" in sequence_content["ligand"]:
                 ccd_codes = sequence_content["ligand"]["ccdCodes"]
                 if any(ligand in ccd_codes for ligand in ccdcodes_to_remove):
-                    logger.info(
-                        f"Removing ligand: {sequence_content['ligand']['ccdCodes']}"
-                    )
+                    logger.info(f"Removing ligand: {sequence_content['ligand']['ccdCodes']}")
                     is_removed = True
                 else:
                     new_sequence_contents.append(sequence_content)
@@ -64,10 +63,7 @@ def remove_ccdcodes(data: dict, ccdcodes_to_remove: list[str]) -> dict:
             new_sequence_contents.append(sequence_content)
 
     if not is_removed:
-        logger.warning(
-            f"No ligand with ccdCodes: {ccdcodes_to_remove} found "
-            "in the input JSON file."
-        )
+        logger.warning(f"No ligand with ccdCodes: {ccdcodes_to_remove} found in the input JSON file.")
     new_data["sequences"] = new_sequence_contents
     return new_data
 
@@ -88,9 +84,7 @@ def purge_ligand(data: dict) -> dict:
             if sequence_content["ligand"].get("smiles"):
                 logger.info(f"Purging smiles: {sequence_content['ligand']['smiles']}")
             elif sequence_content["ligand"].get("ccdCodes"):
-                logger.info(
-                    f"Purging ccdCodes: {sequence_content['ligand']['ccdCodes']}"
-                )
+                logger.info(f"Purging ccdCodes: {sequence_content['ligand']['ccdCodes']}")
             else:
                 new_sequence_contents.append(sequence_content)
         else:
@@ -248,6 +242,7 @@ def add_templates(
     overwrite: bool = False,
     name: str | None = None,
     output_dir: Path | None = None,
+    download_missing_structures: bool = False,
 ) -> dict:
     """Add template search results to protein chains in AlphaFold3 json data.
 
@@ -263,8 +258,12 @@ def add_templates(
 
     Args:
         data (dict): AlphaFold3 json data.
-        pdb_database_path (str): Directory of the PDB mmCIF database.
-        seqres_database_path (str): Path to the PDB SEQRES database file.
+        pdb_database_path (str): Directory of the PDB mmCIF database. With
+            download_missing_structures, the directory that template mmCIF files
+            are downloaded into.
+        seqres_database_path (str | None): Path to the PDB SEQRES database file. If
+            None, pdb_seqres.txt is downloaded from the wwPDB into the user cache
+            directory.
         max_template_date (datetime.date): Maximum template release date.
         max_subsequence_ratio (float | None): Maximum subsequence ratio; None
             disables subsequence-ratio filtering.
@@ -276,21 +275,29 @@ def add_templates(
         overwrite (bool): Whether to re-search and replace existing templates.
         name (str | None): Base name used for saved sto file names.
         output_dir (Path | None): Directory to write sto files when save_hmmsto.
+        download_missing_structures (bool): If True, template mmCIF files are
+            downloaded from the wwPDB into pdb_database_path as needed.
     Returns:
         dict: A new dictionary with templates added.
     """
     # Lazy imports: the template-search stack pulls in gemmi/pandas etc., which
     # should not be paid by plain modjson invocations (e.g. ligand-only edits).
     from alphafold3tools.msatojson import validate_template_search_paths
-    from alphafold3tools.searchtemplates import (
-        search_templates,
-        search_templates_with_hits,
-    )
+    from alphafold3tools.pdb_download import resolve_seqres_database_path
+    from alphafold3tools.searchtemplates import search_templates, search_templates_with_hits
     from alphafold3tools.structure.oligomer import guess_homomer_count_from_store
     from alphafold3tools.structure_stores import StructureStore
 
+    if pdb_database_path is None:
+        raise FileNotFoundError(
+            "pdb_database_path is required for template search; pass the download "
+            "directory with download_missing_structures=True to fetch structures "
+            "from the wwPDB."
+        )
     validate_template_search_paths(
-        pdb_database_path, seqres_database_path, hmmbuild_binary_path
+        None if download_missing_structures else pdb_database_path,
+        seqres_database_path,
+        hmmbuild_binary_path,
     )
     new_data = copy.deepcopy(data)
     for chain_index, sequence_content in enumerate(new_data["sequences"]):
@@ -304,18 +311,17 @@ def add_templates(
                 "preserving them (use -O/--overwrite-templates to replace)."
             )
             continue
+        # Resolved here so that pdb_seqres.txt is only downloaded when needed.
+        seqres_database_path = resolve_seqres_database_path(seqres_database_path)
         a3m_string = _resolve_chain_a3m(protein)
         chain_id = protein.get("id")
         first_chain_id = chain_id[0] if isinstance(chain_id, list) else chain_id
         if save_hmmsto and output_dir is not None:
-            sto_path: Path | None = (
-                output_dir / f"{name}_{first_chain_id}.hmmsearch.sto"
-            )
+            sto_path: Path | None = output_dir / f"{name}_{first_chain_id}.hmmsearch.sto"
         else:
             sto_path = None
         logger.info(
-            f"Searching templates for chain {chain_index + 1} "
-            f"(sequence length {len(protein.get('sequence', ''))})..."
+            f"Searching templates for chain {chain_index + 1} (sequence length {len(protein.get('sequence', ''))})..."
         )
         if guess_copies:
             templates_list, hits_meta = search_templates_with_hits(
@@ -327,13 +333,12 @@ def add_templates(
                 max_subsequence_ratio=max_subsequence_ratio,
                 hmmbuild_binary_path=hmmbuild_binary_path,
                 hmmsearch_binary_path=hmmsearch_binary_path,
+                download_missing_structures=download_missing_structures,
             )
             if hits_meta:
                 pdb_id, hit_chain_id = hits_meta[0]
                 assert pdb_database_path is not None  # validated above.
-                copies = guess_homomer_count_from_store(
-                    StructureStore(pdb_database_path), pdb_id, hit_chain_id
-                )
+                copies = guess_homomer_count_from_store(StructureStore(pdb_database_path), pdb_id, hit_chain_id)
                 logger.info(
                     f"Chain {chain_index + 1}: guessed homo-oligomer count = "
                     f"{copies} from template {pdb_id} chain {hit_chain_id}."
@@ -350,6 +355,7 @@ def add_templates(
                 max_subsequence_ratio=max_subsequence_ratio,
                 hmmbuild_binary_path=hmmbuild_binary_path,
                 hmmsearch_binary_path=hmmsearch_binary_path,
+                download_missing_structures=download_missing_structures,
             )
         protein["templates"] = templates_list
     return new_data
@@ -390,7 +396,10 @@ def modjson(
         includetemplates (bool): Whether to run template search and add templates.
         savehmmsto (bool): Whether to save intermediate HMM sto files.
         pdb_database_path (str): Path to the PDB mmCIF database for template search.
+            If None, template mmCIF files are downloaded from the wwPDB into
+            ``templates/<input name>`` next to the output JSON file.
         seqres_database_path (str): Path to the PDB SEQRES database for template search.
+            If None, pdb_seqres.txt is downloaded from the wwPDB.
         max_template_date (datetime.date): Maximum template date for template search.
         max_subsequence_ratio (float | None): Maximum subsequence ratio for template
                                               search.
@@ -413,14 +422,19 @@ def modjson(
             ligand_type, ligand_name, num_ligand = ligand_input
             if ligand_type not in ["smiles", "ccdCodes"]:
                 raise ValueError(
-                    f"Invalid ligand type: {ligand_type}. "
-                    "The ligand type must be either 'smiles' or 'ccdCodes'."
+                    f"Invalid ligand type: {ligand_type}. The ligand type must be either 'smiles' or 'ccdCodes'."
                 )
             ligand_type_literal = cast(Literal["smiles", "ccdCodes"], ligand_type)
             data = add_ligand(data, ligand_type_literal, ligand_name, int(num_ligand))
     if includetemplates:
         logger.info("Searching and adding template information to the input JSON file.")
         template_name = data.get("name") or Path(output).stem
+        download_missing_structures = pdb_database_path is None
+        if download_missing_structures:
+            from alphafold3tools.pdb_download import template_download_dir
+
+            pdb_database_path = str(template_download_dir(Path(output).parent, Path(input).stem))
+            logger.info(f"Template mmCIF files for {input} will be downloaded into {pdb_database_path}.")
         data = add_templates(
             data,
             pdb_database_path=pdb_database_path,
@@ -434,6 +448,7 @@ def modjson(
             overwrite=overwrite_templates,
             name=template_name,
             output_dir=Path(output).parent,
+            download_missing_structures=download_missing_structures,
         )
     data = fix_sequence_ids(data)
 
@@ -533,7 +548,8 @@ def main():
     parser.add_argument(
         "--include_templates",
         help="Search and add template information to each protein chain.\n"
-        "Requires --pdb_database_path, --seqres_database_path and HMMER binaries.\n"
+        "Requires HMMER binaries. When --pdb_database_path/--seqres_database_path\n"
+        "are omitted, the required files are downloaded from the wwPDB.\n"
         "Chains that already have templates are preserved unless "
         "-O/--overwrite-templates is given.",
         action="store_true",
@@ -556,20 +572,24 @@ def main():
     )
     parser.add_argument(
         "--pdb_database_path",
-        help="Path to the PDB mmCIF database for template search.",
+        help="Path to the PDB mmCIF database for template search.\n"
+        "If omitted, the mmCIF files of the template structures are downloaded\n"
+        "from the wwPDB into templates/<input name> next to the output JSON file.",
         type=str,
         default=None,
     )
     parser.add_argument(
         "--seqres_database_path",
-        help="Path to the PDB SEQRES database for template search.",
+        help="Path to the PDB SEQRES database (pdb_seqres.txt) for template search.\n"
+        "If omitted, pdb_seqres.txt is downloaded from the wwPDB into the user cache\n"
+        "directory ($XDG_CACHE_HOME/alphafold3tools or ~/.cache/alphafold3tools)\n"
+        "and re-downloaded when the cached copy is older than 7 days.",
         type=str,
         default=None,
     )
     parser.add_argument(
         "--max_template_date",
-        help="Maximum template date for template search in YYYY-MM-DD format. "
-        "Default is 2099-12-31.",
+        help="Maximum template date for template search in YYYY-MM-DD format. Default is 2099-12-31.",
         type=lambda s: datetime.date.fromisoformat(s),
         default=datetime.date(2099, 12, 31),
     )
@@ -595,12 +615,11 @@ def main():
     )
     parser.add_argument(
         "--guess_copies",
-        "--guess-copies",
         dest="guess_copies",
         help="Guess the homo-oligomer count of each protein chain from the "
         "biological assembly of its first template (PDB ID + chain ID) and set the "
         "number of chain copies (id list length) accordingly, overriding the "
-        "existing copy count. Requires --include_templates and --pdb_database_path.",
+        "existing copy count. Requires --include_templates.",
         action="store_true",
         default=False,
     )
@@ -608,49 +627,61 @@ def main():
     log_setup(args.loglevel)
     if args.guess_copies and not args.include_templates:
         parser.error("--guess_copies requires --include_templates.")
-    if args.guess_copies and args.pdb_database_path is None:
-        parser.error("--guess_copies requires --pdb_database_path.")
     if args.overwrite_templates and not args.include_templates:
-        logger.warning(
-            "-O/--overwrite-templates has no effect without --include_templates; "
-            "ignoring."
-        )
+        logger.warning("-O/--overwrite-templates has no effect without --include_templates; ignoring.")
+    # Download failures are reported as a clean error exit. The exception type is
+    # imported only with --include_templates to keep plain modjson runs light.
+    download_errors: tuple[type[Exception], ...] = ()
     if args.include_templates:
         # Fail fast (before mutating anything) if any template-search path is missing.
         from alphafold3tools.msatojson import validate_template_search_paths
+        from alphafold3tools.pdb_download import DownloadError
 
+        download_errors = (DownloadError,)
+
+        if not Path(args.input_json).is_file():
+            raise FileNotFoundError(f"{args.input_json} does not exist.")
         validate_template_search_paths(
             args.pdb_database_path,
             args.seqres_database_path,
             args.hmmbuild_binary_path,
         )
+        if args.pdb_database_path is None:
+            logger.warning(
+                "--pdb_database_path was not specified. The mmCIF files of the template "
+                "structures will be downloaded from the wwPDB into templates/<input name> "
+                "next to the output JSON file."
+            )
     max_subsequence_ratio = args.max_subsequence_ratio
     if max_subsequence_ratio == 1.0:
         logger.success(
-            "No templates will be excluded based on subsequence ratio since "
-            "max_subsequence_ratio is set to 1.0."
+            "No templates will be excluded based on subsequence ratio since max_subsequence_ratio is set to 1.0."
         )
         max_subsequence_ratio = None
-    modjson(
-        args.input_json,
-        args.out,
-        args.ligands_to_be_added,
-        args.purging,
-        args.ligands_to_be_removed,
-        args.name,
-        args.userccd_to_be_added,
-        args.loglevel,
-        includetemplates=args.include_templates,
-        savehmmsto=args.save_hmmsto,
-        pdb_database_path=args.pdb_database_path,
-        seqres_database_path=args.seqres_database_path,
-        max_template_date=args.max_template_date,
-        max_subsequence_ratio=max_subsequence_ratio,
-        hmmbuild_binary_path=args.hmmbuild_binary_path,
-        hmmsearch_binary_path=args.hmmsearch_binary_path,
-        guess_copies=args.guess_copies,
-        overwrite_templates=args.overwrite_templates,
-    )
+    try:
+        modjson(
+            args.input_json,
+            args.out,
+            args.ligands_to_be_added,
+            args.purging,
+            args.ligands_to_be_removed,
+            args.name,
+            args.userccd_to_be_added,
+            args.loglevel,
+            includetemplates=args.include_templates,
+            savehmmsto=args.save_hmmsto,
+            pdb_database_path=args.pdb_database_path,
+            seqres_database_path=args.seqres_database_path,
+            max_template_date=args.max_template_date,
+            max_subsequence_ratio=max_subsequence_ratio,
+            hmmbuild_binary_path=args.hmmbuild_binary_path,
+            hmmsearch_binary_path=args.hmmsearch_binary_path,
+            guess_copies=args.guess_copies,
+            overwrite_templates=args.overwrite_templates,
+        )
+    except download_errors as e:
+        logger.error(str(e))
+        sys.exit(1)
 
 
 if __name__ == "__main__":

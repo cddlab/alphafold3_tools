@@ -12,6 +12,8 @@ from alphafold3tools.msatojson import (
     get_residuelens_stoichiometries,
     int_id_to_str_id,
     split_a3msequences,
+    validate_template_search_paths,
+    write_input_json_file,
 )
 
 
@@ -454,3 +456,91 @@ class TestGuessCopies:
             hmmbuild_binary_path=hmmbuild,
         )
         assert content["sequences"][0]["protein"]["id"] == ["A"]
+
+
+class TestTemplateDownloadMode:
+    """When the database paths are omitted, msatojson downloads what it needs."""
+
+    def _hmmbuild(self, tmp_path):
+        hmmbuild = tmp_path / "hmmbuild"
+        hmmbuild.write_text("")
+        return str(hmmbuild)
+
+    def test_validate_allows_omitted_database_paths(self, tmp_path):
+        validate_template_search_paths(None, None, self._hmmbuild(tmp_path))
+
+    def test_downloads_structures_into_templates_dir(self, monkeypatch, tmp_path):
+        a3m = tmp_path / "in" / "foo.a3m"
+        a3m.parent.mkdir()
+        a3m.write_text(">101\nPIAQIHILEGRSDEQKE\n")
+        out_dir = tmp_path / "out"
+        out_dir.mkdir()
+        captured = {}
+
+        def fake_search(**kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(msatojson, "search_templates", fake_search)
+        monkeypatch.setattr(msatojson, "resolve_seqres_database_path", lambda path: "/cache/pdb_seqres.txt")
+
+        write_input_json_file(
+            inputmsafile=a3m,
+            name="foo",
+            outputjsonfile=out_dir / "foo.json",
+            includetemplates=True,
+            pdb_database_path=None,
+            seqres_database_path=None,
+            hmmbuild_binary_path=self._hmmbuild(tmp_path),
+        )
+
+        assert captured["pdb_database_path"] == out_dir / "templates" / "foo"
+        assert captured["download_missing_structures"] is True
+        assert captured["seqres_database_path"] == "/cache/pdb_seqres.txt"
+
+    def test_local_database_is_used_as_is(self, monkeypatch, tmp_path):
+        a3m = tmp_path / "foo.a3m"
+        a3m.write_text(">101\nPIAQIHILEGRSDEQKE\n")
+        seqres = tmp_path / "pdb_seqres.txt"
+        seqres.write_text("")
+        captured = {}
+
+        def fake_search(**kwargs):
+            captured.update(kwargs)
+            return []
+
+        monkeypatch.setattr(msatojson, "search_templates", fake_search)
+
+        write_input_json_file(
+            inputmsafile=a3m,
+            name="foo",
+            outputjsonfile=tmp_path / "foo.json",
+            includetemplates=True,
+            pdb_database_path="testfiles/mmcif_files",
+            seqres_database_path=str(seqres),
+            hmmbuild_binary_path=self._hmmbuild(tmp_path),
+        )
+
+        assert captured["pdb_database_path"] == "testfiles/mmcif_files"
+        assert captured["download_missing_structures"] is False
+        assert captured["seqres_database_path"] == str(seqres)
+        assert not (tmp_path / "templates").exists()
+
+    def test_pdb_path_required_without_download(self, monkeypatch, tmp_path):
+        def boom(**kwargs):
+            raise AssertionError("template search should not run")
+
+        monkeypatch.setattr(msatojson, "search_templates", boom)
+        query = Seq(name=">101\n", sequence="PIAQIHILEGRSDEQKE")
+        with pytest.raises(FileNotFoundError, match="pdb_database_path"):
+            generate_input_json_content(
+                name="foo",
+                cardinality=1,
+                stoichiometries=[1],
+                pairedmsas=[[]],
+                unpairedmsas=[[query]],
+                includetemplates=True,
+                pdb_database_path=None,
+                seqres_database_path=None,
+                hmmbuild_binary_path=self._hmmbuild(tmp_path),
+            )
