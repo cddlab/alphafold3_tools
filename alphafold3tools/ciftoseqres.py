@@ -37,6 +37,8 @@ def _parse_cif_for_seqres(cif_path: Path) -> list[tuple[str, str, str, str, str]
             title = gemmi.cif.as_string(struct_title)
         else:
             title = "no_title"
+    # A multi-line title would break the one-line FASTA header.
+    title = " ".join(title.split()) or "no_title"
 
     poly_table = block.find(
         "_entity_poly.",

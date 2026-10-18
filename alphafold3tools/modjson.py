@@ -4,7 +4,9 @@ import datetime
 import json
 import shutil
 import sys
-from argparse import ArgumentParser, RawTextHelpFormatter
+import tempfile
+from argparse import ArgumentParser, Namespace, RawTextHelpFormatter
+from contextlib import ExitStack
 from pathlib import Path
 from typing import Literal, cast
 
@@ -12,7 +14,7 @@ from loguru import logger
 
 from alphafold3tools import __version__
 from alphafold3tools.log import log_setup
-from alphafold3tools.utils import add_version_option, int_id_to_str_id, to_json
+from alphafold3tools.utils import add_version_option, int_id_to_str_id, resolve_max_subsequence_ratio, to_json
 
 
 def read_json_data(jsonpath: str) -> dict:
@@ -556,6 +558,18 @@ def main():
         default=False,
     )
     parser.add_argument(
+        "--custom_template",
+        help="Directory of PDB/mmCIF files (optionally gzip-compressed) to use as the\n"
+        "only template structures, e.g. unpublished structures or predicted models.\n"
+        "PDB files are converted to mmCIF files next to them (X.pdb -> X.cif).\n"
+        "Implies --include_templates and cannot be combined with\n"
+        "--pdb_database_path or --seqres_database_path.\n"
+        "--max_subsequence_ratio defaults to 1.0 with this option.",
+        type=str,
+        default=None,
+        metavar="DIR",
+    )
+    parser.add_argument(
         "-O",
         "--overwrite-templates",
         dest="overwrite_templates",
@@ -597,9 +611,9 @@ def main():
         "--max_subsequence_ratio",
         help="Maximum subsequence ratio for template search. "
         "If set to 1.0, no templates will be excluded based on subsequence ratio. "
-        "Default is 0.95.",
+        "Default is 0.95 (1.0 with --custom_template).",
         type=float,
-        default=0.95,
+        default=None,
     )
     parser.add_argument(
         "--hmmbuild_binary_path",
@@ -619,69 +633,97 @@ def main():
         help="Guess the homo-oligomer count of each protein chain from the "
         "biological assembly of its first template (PDB ID + chain ID) and set the "
         "number of chain copies (id list length) accordingly, overriding the "
-        "existing copy count. Requires --include_templates.",
+        "existing copy count. Requires --include_templates or --custom_template.",
         action="store_true",
         default=False,
     )
     args = parser.parse_args()
     log_setup(args.loglevel)
+    if args.custom_template is not None:
+        # An empty path (e.g. an unset "$DIR") would mean the current directory.
+        if not args.custom_template.strip():
+            parser.error("--custom_template requires a directory path.")
+        if args.pdb_database_path is not None or args.seqres_database_path is not None:
+            parser.error("--custom_template cannot be used with --pdb_database_path or --seqres_database_path.")
+        args.include_templates = True
     if args.guess_copies and not args.include_templates:
-        parser.error("--guess_copies requires --include_templates.")
+        parser.error("--guess_copies requires --include_templates or --custom_template.")
     if args.overwrite_templates and not args.include_templates:
-        logger.warning("-O/--overwrite-templates has no effect without --include_templates; ignoring.")
+        logger.warning(
+            "-O/--overwrite-templates has no effect without --include_templates or --custom_template; ignoring."
+        )
+    max_subsequence_ratio = resolve_max_subsequence_ratio(
+        args.max_subsequence_ratio, custom_template=args.custom_template is not None
+    )
     # Download failures are reported as a clean error exit. The exception type is
     # imported only with --include_templates to keep plain modjson runs light.
     download_errors: tuple[type[Exception], ...] = ()
-    if args.include_templates:
-        # Fail fast (before mutating anything) if any template-search path is missing.
-        from alphafold3tools.msatojson import validate_template_search_paths
-        from alphafold3tools.pdb_download import DownloadError
+    with ExitStack() as stack:
+        if args.include_templates:
+            from alphafold3tools.pdb_download import DownloadError
 
-        download_errors = (DownloadError,)
-
-        if not Path(args.input_json).is_file():
-            raise FileNotFoundError(f"{args.input_json} does not exist.")
-        validate_template_search_paths(
-            args.pdb_database_path,
-            args.seqres_database_path,
-            args.hmmbuild_binary_path,
-        )
-        if args.pdb_database_path is None:
-            logger.warning(
-                "--pdb_database_path was not specified. The mmCIF files of the template "
-                "structures will be downloaded from the wwPDB into templates/<input name> "
-                "next to the output JSON file."
+            download_errors = (DownloadError,)
+            _prepare_template_databases(args, stack)
+        try:
+            modjson(
+                args.input_json,
+                args.out,
+                args.ligands_to_be_added,
+                args.purging,
+                args.ligands_to_be_removed,
+                args.name,
+                args.userccd_to_be_added,
+                args.loglevel,
+                includetemplates=args.include_templates,
+                savehmmsto=args.save_hmmsto,
+                pdb_database_path=args.pdb_database_path,
+                seqres_database_path=args.seqres_database_path,
+                max_template_date=args.max_template_date,
+                max_subsequence_ratio=max_subsequence_ratio,
+                hmmbuild_binary_path=args.hmmbuild_binary_path,
+                hmmsearch_binary_path=args.hmmsearch_binary_path,
+                guess_copies=args.guess_copies,
+                overwrite_templates=args.overwrite_templates,
             )
-    max_subsequence_ratio = args.max_subsequence_ratio
-    if max_subsequence_ratio == 1.0:
-        logger.success(
-            "No templates will be excluded based on subsequence ratio since max_subsequence_ratio is set to 1.0."
+        except download_errors as e:
+            logger.error(str(e))
+            sys.exit(1)
+
+
+def _prepare_template_databases(args: Namespace, stack: ExitStack) -> None:
+    """Validates the template-search paths in ``args`` and builds the --custom_template database.
+
+    Runs before anything is modified so that a missing path fails fast. The custom
+    template database is a temporary directory that is removed when ``stack`` is
+    closed.
+    """
+    # Lazy imports: see add_templates().
+    from alphafold3tools.msatojson import validate_template_search_paths
+
+    if not Path(args.input_json).is_file():
+        raise FileNotFoundError(f"{args.input_json} does not exist.")
+    validate_template_search_paths(
+        args.pdb_database_path,
+        args.seqres_database_path,
+        args.hmmbuild_binary_path,
+    )
+    if args.custom_template is not None:
+        from alphafold3tools.custom_templates import CustomTemplateError, prepare_custom_template_database
+
+        work_dir = stack.enter_context(tempfile.TemporaryDirectory(prefix="af3tools_custom_templates_"))
+        try:
+            database = prepare_custom_template_database(args.custom_template, work_dir)
+        except (CustomTemplateError, OSError) as e:
+            logger.error(str(e))
+            sys.exit(1)
+        args.pdb_database_path = str(database.pdb_database_path)
+        args.seqres_database_path = str(database.seqres_database_path)
+    elif args.pdb_database_path is None:
+        logger.warning(
+            "--pdb_database_path was not specified. The mmCIF files of the template "
+            "structures will be downloaded from the wwPDB into templates/<input name> "
+            "next to the output JSON file."
         )
-        max_subsequence_ratio = None
-    try:
-        modjson(
-            args.input_json,
-            args.out,
-            args.ligands_to_be_added,
-            args.purging,
-            args.ligands_to_be_removed,
-            args.name,
-            args.userccd_to_be_added,
-            args.loglevel,
-            includetemplates=args.include_templates,
-            savehmmsto=args.save_hmmsto,
-            pdb_database_path=args.pdb_database_path,
-            seqres_database_path=args.seqres_database_path,
-            max_template_date=args.max_template_date,
-            max_subsequence_ratio=max_subsequence_ratio,
-            hmmbuild_binary_path=args.hmmbuild_binary_path,
-            hmmsearch_binary_path=args.hmmsearch_binary_path,
-            guess_copies=args.guess_copies,
-            overwrite_templates=args.overwrite_templates,
-        )
-    except download_errors as e:
-        logger.error(str(e))
-        sys.exit(1)
 
 
 if __name__ == "__main__":

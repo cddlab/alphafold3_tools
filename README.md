@@ -90,7 +90,7 @@ For example, processing a two-chain complex `testcomplex.a3m` with `-o /path/to/
 From version 0.2.0, templates can be also added to the output JSON file. Use the `--include_templates` option to include templates. The directory path `/path/to/mmcif_files` containing mmCIF files and the corresponding `pdb_seqres.txt` file can be specified with the `--pdb_database_path` and `--seqres_database_path` options, respectively. If they are omitted, only the files that are needed are downloaded from the wwPDB (see [Downloading the databases automatically](#downloading-the-databases-automatically)).
 
 - `--max_template_date` option can be used to set the maximum template date. The default value is `2099-09-30`, which means no filtering based on template date. **If you want to the same results as AlphaFold3, set this value to `2021-09-30`.**
-- `--max_subsequence_ratio` option can be used to set the maximum subsequence ratio for template filtering. The default value is `0.95` (same as the default value of AlphaFold3). However, if you want to include all templates regardless of the subsequence ratio, set this option to `1.0`.
+- `--max_subsequence_ratio` option can be used to set the maximum subsequence ratio for template filtering. The default value is `0.95` (same as the default value of AlphaFold3), or `1.0` with [`--custom_template`](#using-your-own-structures-as-templates---custom_template). However, if you want to include all templates regardless of the subsequence ratio, set this option to `1.0`.
 - `-d` option can be used to enable debug mode, which will print debug information during the template search process.
 
 ```bash
@@ -134,13 +134,32 @@ af3tools msatojson -i foo.a3m -o out/foo.json --include_templates
 # -> out/foo.json, out/templates/foo/*.cif
 ```
 
+##### Using your own structures as templates (`--custom_template`)
+
+`--custom_template /path/to/dir` uses **only** the structures in the given directory as templates instead of searching the PDB, so that unpublished structures or predicted models (e.g. AlphaFold models) can be used as templates. It implies `--include_templates`.
+
+- PDB (`*.pdb`) and mmCIF (`*.cif`) files directly under the directory are used, and gzip-compressed files (`*.pdb.gz`, `*.cif.gz`) are also accepted. Suffixes are case-insensitive, and subdirectories are not searched.
+- A PDB file is first converted to an mmCIF file with [`pdbtocif`](#pdbtocif), which is saved in the same directory under the name with the suffix replaced by `.cif` (e.g. `AAAAAA.pdb` or `AAAAAA.pdb.gz` → `AAAAAA.cif`). The directory must therefore be writable when it contains PDB files. The converted file is saved only when the structure can be used as a template, and an existing file is never replaced.
+- Files whose names differ only in the suffix are the same structure, and only one of them is used, in the order `.cif`, `.cif.gz`, `.pdb`, `.pdb.gz` (the others are reported with a warning). In particular, a PDB file is not converted again once the `.cif` file converted from it exists; delete the `.cif` file to convert it again (the warning also tells you when the PDB file is newer than the `.cif` file).
+- A `pdb_seqres.txt`-like sequence file is built from these structures only, and the template search with `hmmbuild`/`hmmsearch` then runs as with `--include_templates`. For this, each structure is copied into a temporary directory (removed when the command finishes; the template structures are embedded in the output JSON) under an ID made from its file name (lowercased, with non-alphanumeric characters removed, e.g. `P9WIC5_v6.cif` → `p9wic5v6`), and the fields that predicted models lack are filled in: the canonical one-letter sequence, and the release date, which is set to `1970-01-01` so that `--max_template_date` never excludes such structures.
+- Files that cannot be used as templates (e.g. broken files or structures without a protein chain) are skipped with a warning. The command exits with an error if none of them can be used.
+- `--max_subsequence_ratio` defaults to **`1.0`** (no subsequence-ratio filtering) with `--custom_template`, so that a template identical to the query sequence is kept, and a warning tells you that this default was applied. Give `--max_subsequence_ratio 0.95` explicitly to filter such templates out as usual.
+- `--custom_template` cannot be combined with `--pdb_database_path` or `--seqres_database_path`.
+- As with `--include_templates`, at most four templates are added per protein chain, and templates with the same sequence are deduplicated (only the first of several models of the same sequence is used).
+
+```bash
+# my_templates/ contains e.g. model_1.pdb and unpublished.cif.gz
+af3tools msatojson -i foo.a3m -o out/foo.json --custom_template my_templates/
+# -> out/foo.json; my_templates/model_1.cif is created by the PDB-to-mmCIF conversion
+```
+
 #### Guessing the homo-oligomer count from templates (`--guess_copies`)
 
 By default, the number of copies of each protein chain in the output JSON (the length of the `id` list) is taken from the stoichiometry recorded in the a3m header. Use the `--guess_copies` option to instead infer the homo-oligomer count from the biological assembly of each chain's **first template**.
 
 For each protein sequence, `msatojson` looks up the first template hit (PDB ID + chain ID), reads that structure's biological assembly information from the mmCIF file, and counts how many copies of the same polymer entity it contains. That count becomes the number of chain IDs assigned to the sequence, **overriding** the a3m header stoichiometry. For example, if the first template of a chain is the homohexamer `1BJP`, that chain is assigned six IDs (`"id": ["A", "B", "C", "D", "E", "F"]`). When there are multiple protein sequences, the chain-ID letters are shifted so that IDs never overlap between sequences. If no template is found, or the structure has no usable biological assembly information, the count falls back to `1` (monomer).
 
-- `--guess_copies` performs a template search, so it **requires `--include_templates`**; the command exits with an error if it is missing. When `--pdb_database_path` is omitted, the first template's mmCIF file is read from the downloaded `templates/<input name>/` directory.
+- `--guess_copies` performs a template search, so it **requires `--include_templates` (or `--custom_template`)**; the command exits with an error if it is missing. When `--pdb_database_path` is omitted, the first template's mmCIF file is read from the downloaded `templates/<input name>/` directory.
 
 ```bash
 # Example command to guess the number of chain copies from templates
@@ -245,10 +264,11 @@ af3tools modjson \
 ```
 
 - `--include_templates`: Search and add template information to each protein chain. Requires the HMMER binaries (`--hmmbuild_binary_path`/`--hmmsearch_binary_path`, defaulting to the ones on `PATH`). `--pdb_database_path` and `--seqres_database_path` are optional: when omitted, the files are downloaded from the wwPDB exactly as in `msatojson` (see [Downloading the databases automatically](#downloading-the-databases-automatically)); the template mmCIF files are saved in `templates/<input name>/` next to the output JSON file, where `<input name>` is the input JSON file name without its extension.
-- `--max_template_date` / `--max_subsequence_ratio`: Same as in `msatojson`. Setting `--max_subsequence_ratio 1.0` disables subsequence-ratio filtering.
+- `--custom_template`: Use only the PDB/mmCIF files (optionally gzip-compressed) in the given directory as templates, exactly as in `msatojson` (see [Using your own structures as templates](#using-your-own-structures-as-templates---custom_template)). Implies `--include_templates`, and cannot be combined with `--pdb_database_path`/`--seqres_database_path`.
+- `--max_template_date` / `--max_subsequence_ratio`: Same as in `msatojson`. Setting `--max_subsequence_ratio 1.0` disables subsequence-ratio filtering, which is the default with `--custom_template`.
 - `-O` / `--overwrite-templates`: Overwrite existing template information. By default, a protein chain that already has a non-empty `templates` list is **preserved (skipped)**; only chains with empty/absent templates are searched. With `-O`, every protein chain is re-searched and its templates replaced. This option only affects template overwriting; other entities are unaffected.
 - `--save_hmmsto`: Save the intermediate hmmsearch Stockholm (`.sto`) file per chain, named `{name}_{chain_id}.hmmsearch.sto`, in the output JSON's directory.
-- `--guess_copies`: Infer the homo-oligomer count of each protein chain from its first template's biological assembly and set the chain's copy count (`id` list length) accordingly, overriding the existing count. Requires `--include_templates`. Chain ids are renumbered contiguously afterwards.
+- `--guess_copies`: Infer the homo-oligomer count of each protein chain from its first template's biological assembly and set the chain's copy count (`id` list length) accordingly, overriding the existing count. Requires `--include_templates` (or `--custom_template`). Chain ids are renumbered contiguously afterwards.
 
 > [!NOTE]
 > `--write_msapath` is available only in `msatojson`; `modjson` keeps the MSA representation of the input JSON unchanged.
@@ -324,7 +344,7 @@ af3tools jsontomsa -i /path/to/alphafold3_data.json -o /path/to/out.a3m
 
 ### pdbtocif
 
-`pdbtocif` is a command to convert a PDB file to mmCIF format. The output file name can be specified with the `-o` option.
+`pdbtocif` is a command to convert a PDB file to mmCIF format. The output file name can be specified with the `-o` option. A gzip-compressed input file (`input.pdb.gz`) is also accepted.
 
 ```bash
 af3tools pdbtocif -i input.pdb -o output.cif [--pdb_id XXXX]

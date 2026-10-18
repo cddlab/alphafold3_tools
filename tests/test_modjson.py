@@ -1,9 +1,14 @@
 import json
 import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
 
 import pytest
 from loguru import logger
 
+import alphafold3tools.modjson as modjson_cli
 from alphafold3tools.log import log_setup
 from alphafold3tools.modjson import (
     _resolve_chain_a3m,
@@ -672,6 +677,129 @@ class TestAddTemplates:
                 hmmbuild_binary_path=hmmbuild,
                 hmmsearch_binary_path=hmmbuild,
             )
+
+
+class TestCustomTemplateCli:
+    """``--custom_template`` builds the template database from a directory of structures."""
+
+    _FAKE_TEMPLATES = [{"mmcif": "data_x\n", "queryIndices": [0], "templateIndices": [0]}]
+
+    @pytest.fixture
+    def custom_dir(self, tmp_path):
+        directory = tmp_path / "custom"
+        directory.mkdir()
+        shutil.copy("testfiles/mmcif_files/1BJP.cif", directory / "1BJP.cif")
+        return directory
+
+    @pytest.fixture
+    def searches(self, monkeypatch):
+        """Replaces the template search and records the database each call sees."""
+        import alphafold3tools.searchtemplates as st
+
+        calls: list[dict] = []
+
+        def fake_search(**kwargs):
+            database = Path(kwargs["pdb_database_path"])
+            kwargs["database_files"] = sorted(path.name for path in database.iterdir())
+            calls.append(kwargs)
+            return self._FAKE_TEMPLATES
+
+        monkeypatch.setattr(st, "search_templates", fake_search)
+        # main() calls log_setup(), which would remove the warnings_log handler.
+        monkeypatch.setattr(modjson_cli, "log_setup", lambda level: None)
+        return calls
+
+    def _run(self, monkeypatch, tmp_path, *args):
+        input_json = tmp_path / "bar.json"
+        sequence = "PIAQIHILEGRSDEQKE"
+        protein = {"id": ["A"], "sequence": sequence, "unpairedMsa": f">query\n{sequence}\n", "templates": []}
+        input_json.write_text(json.dumps({"name": "bar", "sequences": [{"protein": protein}]}))
+        hmmbuild = tmp_path / "hmmbuild"
+        hmmbuild.write_text("")
+        output = tmp_path / "bar_templates.json"
+        argv = ["modjson", "-i", str(input_json), "-o", str(output), "--hmmbuild_binary_path", str(hmmbuild)]
+        monkeypatch.setattr(sys, "argv", [*argv, *args])
+        modjson_cli.main()
+        return output
+
+    def test_custom_template_enables_template_search(self, monkeypatch, tmp_path, custom_dir, searches):
+        output = self._run(monkeypatch, tmp_path, "--custom_template", str(custom_dir))
+
+        assert len(searches) == 1
+        call = searches[0]
+        assert call["database_files"] == ["1bjp.cif", "pdb_seqres.txt"]
+        assert call["download_missing_structures"] is False
+        assert call["max_subsequence_ratio"] is None
+        assert json.loads(output.read_text())["sequences"][0]["protein"]["templates"] == self._FAKE_TEMPLATES
+        assert not Path(call["pdb_database_path"]).exists()
+
+    def test_default_ratio_change_is_warned(self, monkeypatch, tmp_path, custom_dir, searches, warnings_log):
+        self._run(monkeypatch, tmp_path, "--custom_template", str(custom_dir))
+
+        assert any("--custom_template is specified" in message for message in warnings_log)
+
+    def test_explicit_ratio_is_kept(self, monkeypatch, tmp_path, custom_dir, searches, warnings_log):
+        self._run(monkeypatch, tmp_path, "--custom_template", str(custom_dir), "--max_subsequence_ratio", "0.9")
+
+        assert searches[0]["max_subsequence_ratio"] == 0.9
+        assert not any("--custom_template is specified" in message for message in warnings_log)
+
+    def test_default_ratio_without_custom_template(self, monkeypatch, tmp_path, searches):
+        seqres = tmp_path / "pdb_seqres.txt"
+        seqres.write_text("")
+        self._run(
+            monkeypatch,
+            tmp_path,
+            "--include_templates",
+            "--pdb_database_path",
+            "testfiles/mmcif_files",
+            "--seqres_database_path",
+            str(seqres),
+        )
+
+        assert searches[0]["max_subsequence_ratio"] == 0.95
+
+    @pytest.mark.parametrize("option", ["--pdb_database_path", "--seqres_database_path"])
+    def test_database_paths_are_rejected(self, monkeypatch, tmp_path, custom_dir, searches, option):
+        with pytest.raises(SystemExit) as excinfo:
+            self._run(monkeypatch, tmp_path, "--custom_template", str(custom_dir), option, str(tmp_path))
+
+        assert excinfo.value.code == 2
+        assert searches == []
+
+    def test_guess_copies_is_allowed(self, monkeypatch, tmp_path, custom_dir, searches):
+        import alphafold3tools.searchtemplates as st
+
+        def fake_search_with_hits(**kwargs):
+            return searches.append(kwargs) or self._FAKE_TEMPLATES, []
+
+        monkeypatch.setattr(st, "search_templates_with_hits", fake_search_with_hits)
+
+        self._run(monkeypatch, tmp_path, "--custom_template", str(custom_dir), "--guess_copies")
+
+        assert len(searches) == 1
+
+    def test_empty_custom_template_is_rejected(self, monkeypatch, tmp_path, searches):
+        with pytest.raises(SystemExit) as excinfo:
+            self._run(monkeypatch, tmp_path, "--custom_template", "")
+
+        assert excinfo.value.code == 2
+
+    def test_directory_without_structures_exits_with_error(self, monkeypatch, tmp_path, searches):
+        empty = tmp_path / "empty"
+        empty.mkdir()
+
+        with pytest.raises(SystemExit) as excinfo:
+            self._run(monkeypatch, tmp_path, "--custom_template", str(empty))
+
+        assert excinfo.value.code == 1
+        assert searches == []
+
+
+def test_plain_modjson_does_not_import_template_search_stack():
+    code = "import sys, alphafold3tools.modjson; print(sorted({'gemmi', 'alphafold3tools.custom_templates'} & set(sys.modules)))"
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+    assert result.stdout.strip() == "[]"
 
 
 if __name__ == "__main__":

@@ -3,19 +3,22 @@ import datetime
 import os
 import shutil
 import sys
-from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser
+import tempfile
+from argparse import ArgumentDefaultsHelpFormatter, ArgumentParser, Namespace
+from contextlib import ExitStack
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
+from alphafold3tools.custom_templates import CustomTemplateError, prepare_custom_template_database
 from alphafold3tools.log import log_setup
 from alphafold3tools.pdb_download import DownloadError, resolve_seqres_database_path, template_download_dir
 from alphafold3tools.searchtemplates import search_templates, search_templates_with_hits
 from alphafold3tools.structure.oligomer import guess_homomer_count_from_store
 from alphafold3tools.structure_stores import StructureStore
-from alphafold3tools.utils import add_version_option, int_id_to_str_id, to_json
+from alphafold3tools.utils import add_version_option, int_id_to_str_id, resolve_max_subsequence_ratio, to_json
 
 
 @dataclass
@@ -625,6 +628,17 @@ def main():
         default=False,
     )
     parser.add_argument(
+        "--custom_template",
+        help="Directory of PDB/mmCIF files (optionally gzip-compressed) to use as the only "
+        "template structures, e.g. unpublished structures or predicted models. PDB files are "
+        "converted to mmCIF files next to them (X.pdb -> X.cif). Implies --include_templates "
+        "and cannot be combined with --pdb_database_path or --seqres_database_path. "
+        "--max_subsequence_ratio defaults to 1.0 with this option.",
+        type=str,
+        default=None,
+        metavar="DIR",
+    )
+    parser.add_argument(
         "--save_hmmsto",
         help="Save intermediate HMM sto files used for template search.",
         action="store_true",
@@ -657,9 +671,9 @@ def main():
         "--max_subsequence_ratio",
         help="Maximum subsequence ratio for template search. "
         "If set to 1.0, no templates will be excluded based on subsequence ratio. "
-        "Default is 0.95.",
+        "If omitted, 0.95 is used (1.0 with --custom_template).",
         type=float,
-        default=0.95,
+        default=None,
     )
     parser.add_argument(
         "--hmmbuild_binary_path",
@@ -687,14 +701,21 @@ def main():
         help="Guess the homo-oligomer count of each protein chain from the "
         "biological assembly of its first template (PDB ID + chain ID) and set the "
         "number of chain copies (id list length) accordingly, overriding the a3m "
-        "header stoichiometry. Requires --include_templates.",
+        "header stoichiometry. Requires --include_templates or --custom_template.",
         action="store_true",
         default=False,
     )
     args = parser.parse_args()
     log_setup(args.loglevel)
+    if args.custom_template is not None:
+        # An empty path (e.g. an unset "$DIR") would mean the current directory.
+        if not args.custom_template.strip():
+            parser.error("--custom_template requires a directory path.")
+        if args.pdb_database_path is not None or args.seqres_database_path is not None:
+            parser.error("--custom_template cannot be used with --pdb_database_path or --seqres_database_path.")
+        args.include_templates = True
     if args.guess_copies and not args.include_templates:
-        parser.error("--guess_copies requires --include_templates.")
+        parser.error("--guess_copies requires --include_templates or --custom_template.")
     # Default name is the input file name without extension
     if args.name == "":
         args.name = os.path.splitext(os.path.basename(args.input))[0]
@@ -702,53 +723,18 @@ def main():
     input_path = Path(args.input)
     if not input_path.exists():
         raise FileNotFoundError(f"{input_path} does not exist.")
-    if args.include_templates:
-        # Fail fast (before reading MSAs) if any template-search path is missing.
-        validate_template_search_paths(
-            args.pdb_database_path,
-            args.seqres_database_path,
-            args.hmmbuild_binary_path,
-        )
-        if args.pdb_database_path is None:
-            logger.warning(
-                "--pdb_database_path was not specified. The mmCIF files of the template "
-                "structures will be downloaded from the wwPDB into templates/<input name> "
-                "next to the output JSON file."
-            )
-        # Resolve pdb_seqres.txt once here, before input files are processed in
-        # parallel, so that it is downloaded at most once.
-        try:
-            args.seqres_database_path = resolve_seqres_database_path(args.seqres_database_path)
-        except DownloadError as e:
-            logger.error(str(e))
-            sys.exit(1)
+    args.max_subsequence_ratio = resolve_max_subsequence_ratio(
+        args.max_subsequence_ratio, custom_template=args.custom_template is not None
+    )
     out_path = Path(args.out)
-    if args.max_subsequence_ratio == 1.0:
-        logger.success(
-            "No templates will be excluded based on subsequence ratio since max_subsequence_ratio is set to 1.0."
-        )
-        args.max_subsequence_ratio = None
-    if input_path.is_dir():
-        logger.info(f"Input directory: {input_path}")
-        process_a3m_directory(
-            input_dir=input_path,
-            output_dir=out_path,
-            includetemplates=args.include_templates,
-            savehmmsto=args.save_hmmsto,
-            pdb_database_path=args.pdb_database_path,
-            seqres_database_path=args.seqres_database_path,
-            max_template_date=args.max_template_date,
-            max_subsequence_ratio=args.max_subsequence_ratio,
-            hmmbuild_binary_path=args.hmmbuild_binary_path,
-            hmmsearch_binary_path=args.hmmsearch_binary_path,
-            write_msapath=args.write_msapath,
-            guess_copies=args.guess_copies,
-        )
-    else:
-        try:
-            process_single_a3m_file(
-                inputmsafile=input_path,
-                outputjsonfile=out_path,
+    with ExitStack() as stack:
+        if args.include_templates:
+            _prepare_template_databases(args, stack)
+        if input_path.is_dir():
+            logger.info(f"Input directory: {input_path}")
+            process_a3m_directory(
+                input_dir=input_path,
+                output_dir=out_path,
                 includetemplates=args.include_templates,
                 savehmmsto=args.save_hmmsto,
                 pdb_database_path=args.pdb_database_path,
@@ -760,9 +746,61 @@ def main():
                 write_msapath=args.write_msapath,
                 guess_copies=args.guess_copies,
             )
-        except DownloadError as e:
+        else:
+            try:
+                process_single_a3m_file(
+                    inputmsafile=input_path,
+                    outputjsonfile=out_path,
+                    includetemplates=args.include_templates,
+                    savehmmsto=args.save_hmmsto,
+                    pdb_database_path=args.pdb_database_path,
+                    seqres_database_path=args.seqres_database_path,
+                    max_template_date=args.max_template_date,
+                    max_subsequence_ratio=args.max_subsequence_ratio,
+                    hmmbuild_binary_path=args.hmmbuild_binary_path,
+                    hmmsearch_binary_path=args.hmmsearch_binary_path,
+                    write_msapath=args.write_msapath,
+                    guess_copies=args.guess_copies,
+                )
+            except DownloadError as e:
+                logger.error(str(e))
+                sys.exit(1)
+
+
+def _prepare_template_databases(args: Namespace, stack: ExitStack) -> None:
+    """Validates the template-search paths in ``args`` and fills in the databases.
+
+    Runs before any MSA is read so that a missing path fails fast, and once for
+    all inputs (which are processed in parallel in directory mode) so that
+    pdb_seqres.txt is downloaded, or the --custom_template database is built, at
+    most once. The custom template database is a temporary directory that is
+    removed when ``stack`` is closed.
+    """
+    validate_template_search_paths(
+        args.pdb_database_path,
+        args.seqres_database_path,
+        args.hmmbuild_binary_path,
+    )
+    if args.custom_template is not None:
+        work_dir = stack.enter_context(tempfile.TemporaryDirectory(prefix="af3tools_custom_templates_"))
+        try:
+            database = prepare_custom_template_database(args.custom_template, work_dir)
+        except (CustomTemplateError, OSError) as e:
             logger.error(str(e))
             sys.exit(1)
+        args.pdb_database_path = str(database.pdb_database_path)
+        args.seqres_database_path = str(database.seqres_database_path)
+    elif args.pdb_database_path is None:
+        logger.warning(
+            "--pdb_database_path was not specified. The mmCIF files of the template "
+            "structures will be downloaded from the wwPDB into templates/<input name> "
+            "next to the output JSON file."
+        )
+    try:
+        args.seqres_database_path = resolve_seqres_database_path(args.seqres_database_path)
+    except DownloadError as e:
+        logger.error(str(e))
+        sys.exit(1)
 
 
 if __name__ == "__main__":

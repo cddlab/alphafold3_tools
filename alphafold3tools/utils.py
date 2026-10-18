@@ -3,8 +3,44 @@ import re
 import string
 from argparse import ArgumentParser
 from pathlib import Path
+from typing import Final
+
+from loguru import logger
 
 from alphafold3tools import __version__
+
+DEFAULT_MAX_SUBSEQUENCE_RATIO: Final[float] = 0.95
+# Custom templates are often the query structure itself; keep them.
+CUSTOM_TEMPLATE_MAX_SUBSEQUENCE_RATIO: Final[float] = 1.0
+
+
+def resolve_max_subsequence_ratio(max_subsequence_ratio: float | None, *, custom_template: bool) -> float | None:
+    """Resolves the --max_subsequence_ratio option of the template search.
+
+    Args:
+        max_subsequence_ratio: The value given on the command line, or None if
+            the option was not given.
+        custom_template: Whether --custom_template is used, which changes the
+            default from 0.95 to 1.0.
+    Returns:
+        The ratio for the template search, or None (no subsequence-ratio
+        filtering) when it is 1.0.
+    """
+    if max_subsequence_ratio is None:
+        if custom_template:
+            logger.warning(
+                "--custom_template is specified, so --max_subsequence_ratio is set to "
+                f"{CUSTOM_TEMPLATE_MAX_SUBSEQUENCE_RATIO} instead of the default {DEFAULT_MAX_SUBSEQUENCE_RATIO}."
+            )
+            max_subsequence_ratio = CUSTOM_TEMPLATE_MAX_SUBSEQUENCE_RATIO
+        else:
+            max_subsequence_ratio = DEFAULT_MAX_SUBSEQUENCE_RATIO
+    if max_subsequence_ratio == 1.0:
+        logger.success(
+            "No templates will be excluded based on subsequence ratio since max_subsequence_ratio is set to 1.0."
+        )
+        return None
+    return max_subsequence_ratio
 
 
 def add_version_option(parser: ArgumentParser) -> None:

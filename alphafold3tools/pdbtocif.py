@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import gzip
 import re
 from collections.abc import Mapping
 from pathlib import Path
@@ -28,7 +29,8 @@ def pdb_to_cif(
     """Convert a PDB file to mmCIF format.
 
     Args:
-        input_path: Path to the input PDB file.
+        input_path: Path to the input PDB file. A gzip-compressed file is read
+            if the name ends with ".gz".
         output_path: Path to the output mmCIF file.
         default_pdb_id: The default PDB ID to use in the output file.
             Defaults to "xxxx" if not provided.
@@ -38,7 +40,11 @@ def pdb_to_cif(
     if pdbid is not None:
         default_pdb_id = pdbid
 
-    pdb_text = Path(input_path).read_text()
+    if Path(input_path).suffix.lower() == ".gz":
+        with gzip.open(input_path, "rt") as f:
+            pdb_text = f.read()
+    else:
+        pdb_text = Path(input_path).read_text()
     pdb_lines = pdb_text.splitlines()
 
     st = gemmi.read_pdb_string(pdb_text)

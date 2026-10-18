@@ -1,3 +1,4 @@
+import gzip
 from pathlib import Path
 
 import gemmi
@@ -58,3 +59,21 @@ def test_pdb_without_seqres_writes_seqres_txt(converted_pair):
     for header, seq in records:
         assert f"length:{len(seq)}" in header
         assert len(seq) > 0
+
+
+def test_gzip_pdb_gives_same_mmcif_as_plain_pdb(tmp_path: Path):
+    plain = TESTFILES / "P9WIC5_v6.pdb"
+    compressed = tmp_path / "P9WIC5_v6.pdb.gz"
+    compressed.write_bytes(gzip.compress(plain.read_bytes()))
+
+    pdb_to_cif(str(plain), str(tmp_path / "plain.cif"), write_seqres=False)
+    pdb_to_cif(str(compressed), str(tmp_path / "compressed.cif"), write_seqres=False)
+
+    assert (tmp_path / "compressed.cif").read_text() == (tmp_path / "plain.cif").read_text()
+
+
+def test_path_object_input_is_accepted(tmp_path: Path):
+    # Only the input path may be a Path object, as before gzip support was added.
+    pdb_to_cif(TESTFILES / "P9WIC5_v6.pdb", str(tmp_path / "out.cif"), write_seqres=False)  # ty: ignore[invalid-argument-type]
+
+    assert (tmp_path / "out.cif").read_text().startswith("data_")
