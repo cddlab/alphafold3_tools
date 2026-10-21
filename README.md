@@ -328,11 +328,18 @@ util.cnc
 
 ### sdftoccd
 
-`sdftoccd` is a command to convert sdf file to ccd format. Please refer to the [AlphaFold3's input document](https://github.com/google-deepmind/alphafold3/blob/main/docs/input.md#user-provided-ccd-format) for the detail of User-provided CCD format.
+`sdftoccd` is a command to convert sdf or mol2 file to ccd format. Please refer to the [AlphaFold3's input document](https://github.com/google-deepmind/alphafold3/blob/main/docs/input.md#user-provided-ccd-format) for the detail of User-provided CCD format.
 
 ```bash
 af3tools sdftoccd -i input.sdf -o userccd.cif -n STR
+af3tools sdftoccd -i input.mol2 -o userccd.cif -n STR
 ```
+
+- The input format is chosen by the file extension (`.mol2` or otherwise SDF). Both SYBYL and GAFF (antechamber) atom types are supported in mol2 files.
+- For mol2 files, the atom names, coordinates, atom order and bond order are kept in the output.
+- Hydrogens are removed.
+- If the bond orders in the input file are not chemically valid (e.g. carboxylates written as `C(=O)=O` by GaussView, or with two single bonds in mol2 files), they are re-assigned from the connectivity. All hydrogens must be included in the input file in this case.
+- Singly bonded oxygens with a charge of -1 (e.g. carboxylates) are written as neutral OH.
 
 ### jsontomsa
 

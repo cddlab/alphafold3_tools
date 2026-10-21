@@ -33,7 +33,7 @@ _DESCRIPTIONS: dict[str, str] = {
     "modjson": "Add/remove ligand entities in an AlphaFold3 input JSON.",
     "paeplot": "Plot predicted aligned error (PAE) for AF3 outputs.",
     "superpose_ciffiles": "Superpose AF3 model.cif files into a multi-model CIF.",
-    "sdftoccd": "Convert an SDF file to user-provided CCD (mmCIF).",
+    "sdftoccd": "Convert an SDF or mol2 file to user-provided CCD (mmCIF).",
     "jsontomsa": "Extract a3m MSA from an AlphaFold3 input JSON.",
     "pdbtocif": "Convert a PDB file to mmCIF format.",
     "metrics": "Calculate ipSAE / ipTM / pDockQ / LIS interaction metrics.",
