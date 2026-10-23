@@ -299,9 +299,10 @@ arguments:
 
 `superpose_ciffiles` is a command to superpose the output mmCIF files. The command creates a multi-model mmCIF file containing all the predicted `model.cif` subdirectories. The output file name can be specified with the `-o` option. By default, the output file will be saved as `foo_superposed.cif` in the input directory.
 `-c` option can be used to specify the chain ID to be superposed.
+Each model in the output file is named `<objectname>_seed-*_sample-*` (e.g. `data_foo_seed-1_sample-0`). By default, `<objectname>` is the name of the input directory; use the `-t` option to override it.
 
 ```bash
-af3tools superpose_ciffiles -i /path/to/alphafold3_output/directory [-o /path/to/output/directory/foo_superposed.cif] [-c A]
+af3tools superpose_ciffiles -i /path/to/alphafold3_output/directory [-o /path/to/output/directory/foo_superposed.cif] [-c A] [-t objectname]
 ```
 
 In [PyMOL](https://www.pymol.org/), the following command will be useful to visualize the plDDT values.

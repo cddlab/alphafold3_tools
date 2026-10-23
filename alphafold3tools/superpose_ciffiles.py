@@ -10,7 +10,7 @@ from alphafold3tools.utils import add_version_option, get_seednumbers
 
 
 def superpose_ciffiles(
-    inputdir: str, outciffile: str = "", chain_id: str = "A"
+    inputdir: str, outciffile: str = "", chain_id: str = "A", objectname: str = ""
 ) -> None:
     """Superpose all models in the input directory and write to the output CIF file.
     Args:
@@ -18,6 +18,10 @@ def superpose_ciffiles(
         outciffile (str): output CIF file. If not specified,
                           the output file will be named "_superposed.cif"
                           in the input directory.
+        chain_id (str): chain ID used for superposition.
+        objectname (str): prefix of each data block name, which becomes
+                          "<objectname>_seed-*_sample-*". If not specified,
+                          the name of the input directory is used.
     """
     if outciffile == "":
         # if inputdir ends with "/", remove it.
@@ -31,6 +35,8 @@ def superpose_ciffiles(
     seednumbers = get_seednumbers(inputdir)
     dir = Path(inputdir).resolve()
     basename = Path(dir).name
+    if objectname == "":
+        objectname = basename
     ciffiles = []
     for seed in seednumbers:
         for j in range(5):
@@ -53,12 +59,13 @@ def superpose_ciffiles(
     outdoc = gemmi.cif.Document()
     for ciffile in ciffiles:
         subdirname = os.path.basename(os.path.dirname(ciffile))
+        blockname = f"{objectname}_{subdirname}"
         block = gemmi.cif.read(str(ciffile)).sole_block()
         # pass the first model as a reference
         if ciffile == ciffiles[0]:
-            block.name = subdirname
-            ref_name = subdirname
-            logger.info(f"First model: {subdirname} as a reference")
+            block.name = blockname
+            ref_name = blockname
+            logger.info(f"First model: {blockname} as a reference")
             firstmodel = gemmi.make_structure_from_block(block)[0]
             outdoc.add_copied_block(block)
         else:
@@ -82,14 +89,14 @@ def superpose_ciffiles(
                 trim_cutoff=2.0,
             )
             logger.info(
-                f"{subdirname}: Superposition onto {ref_name}. RMSD: {sup.rmsd:.2f} Å"
+                f"{blockname}: Superposition onto {ref_name}. RMSD: {sup.rmsd:.2f} Å"
             )
             model.transform_pos_and_adp(sup.transform)
             new_block = structure.make_mmcif_block()
-            new_block.name = subdirname
+            new_block.name = blockname
             outdoc.add_copied_block(new_block)
 
-            outdoc.write_file(outciffile)
+    outdoc.write_file(outciffile)
 
 
 def main():
@@ -124,6 +131,15 @@ def main():
         type=str,
     )
     parser.add_argument(
+        "-t",
+        "--objectname",
+        help="Object name used as the prefix of each model name in the output CIF "
+        "(e.g. 'data_<objectname>_seed-1_sample-0'). "
+        "If not specified, the input directory name is used.",
+        default="",
+        type=str,
+    )
+    parser.add_argument(
         "-d",
         "--debug",
         help="Print lots of debugging statements",
@@ -135,7 +151,7 @@ def main():
     args = parser.parse_args()
     log_setup(args.loglevel)
     if os.path.isdir(args.input):
-        superpose_ciffiles(args.input, args.out, args.chain)
+        superpose_ciffiles(args.input, args.out, args.chain, args.objectname)
     else:
         raise ValueError(f"Input directory not found: {args.input}")
 
