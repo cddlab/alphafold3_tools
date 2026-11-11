@@ -1,5 +1,6 @@
 # %%
-from typing import Mapping
+import math
+from typing import Any, Mapping
 
 import gemmi
 import pandas as pd
@@ -19,8 +20,52 @@ def _get_entity_id_for_chain(df_entity_polys, target_chain_id: str) -> str:
     matching_rows = df_entity_polys[mask]
 
     if len(matching_rows) == 0:
-        ValueError(f"No entity found for chain ID: {target_chain_id}")
+        raise ValueError(f"No entity found for chain ID: {target_chain_id}")
     return matching_rows.iloc[0]["entity_id"]
+
+
+def _is_missing(value: Any) -> bool:
+    """Whether ``value`` is a pandas missing value (None, NaN or pd.NA)."""
+    return value is None or value is pd.NA or (isinstance(value, float) and math.isnan(value))
+
+
+def _column_to_cif_list(df: pd.DataFrame, column: str) -> list:
+    """Converts a DataFrame column to a list of values for gemmi to write.
+
+    gemmi reads the mmCIF null "?" as None and "." as False. pandas turns None
+    into NaN in string columns, which gemmi would write as "nan", so missing
+    values are turned back into None ("?"). False is kept as it is (".").
+    """
+    return [None if _is_missing(value) else value for value in df[column].to_list()]
+
+
+def _select_heterogeneous_residues(
+    df: pd.DataFrame, seq_id_column: str, resolved_names: Mapping[str, str]
+) -> pd.DataFrame:
+    """Keeps one row per residue of a polymer sequence table.
+
+    With microheterogeneity, ``_entity_poly_seq`` and ``_pdbx_poly_seq_scheme`` list
+    several residue names (mon_id) at the same residue number. As AlphaFold3 does,
+    keep the residue that is left in ``_atom_site`` after the alt-loc resolution, or
+    the first one for unresolved residues.
+
+    Args:
+        df: Rows of ``_entity_poly_seq`` or ``_pdbx_poly_seq_scheme`` of one chain.
+        seq_id_column: Column of the residue number ("num" or "seq_id").
+        resolved_names: Residue name in ``_atom_site`` by ``label_seq_id``.
+
+    Returns:
+        The rows of ``df`` with a single residue name per residue number.
+    """
+    positions_by_seq_id: dict[str, list[int]] = {}
+    for position, seq_id in enumerate(df[seq_id_column].to_list()):
+        positions_by_seq_id.setdefault(seq_id, []).append(position)
+    mon_ids = df["mon_id"].to_list()
+    selected = []
+    for seq_id, positions in positions_by_seq_id.items():
+        matching = [position for position in positions if mon_ids[position] == resolved_names.get(seq_id)]
+        selected.append(matching[0] if matching else positions[0])
+    return df.iloc[sorted(selected)]
 
 
 def _get_mmcif_category_as_df(block: gemmi.cif.Block, category_name: str) -> pd.DataFrame:
@@ -83,12 +128,34 @@ def _safe_to_list(
     """Safely convert a DataFrame column to list.
 
     If the column does not exist, return a list of default values with the same
-    number of rows as the DataFrame. Existing columns are returned as-is and may
-    include missing values.
+    number of rows as the DataFrame. Missing values of existing columns are
+    returned as None, which gemmi writes as "?".
     """
     if column in df.columns:
-        return df[column].to_list()
+        return _column_to_cif_list(df, column)
     return [default_value] * len(df)
+
+
+_ATOM_SITE_COLUMNS = (
+    "group_PDB",
+    "id",
+    "type_symbol",
+    "label_atom_id",
+    "label_alt_id",
+    "label_comp_id",
+    "label_asym_id",
+    "label_entity_id",
+    "label_seq_id",
+    "pdbx_PDB_ins_code",
+    "Cartn_x",
+    "Cartn_y",
+    "Cartn_z",
+    "occupancy",
+    "B_iso_or_equiv",
+    "auth_seq_id",
+    "auth_asym_id",
+    "pdbx_PDB_model_num",
+)
 
 
 def format_atom_site_dict(target_atom_site_df: pd.DataFrame) -> dict:
@@ -118,26 +185,7 @@ def format_atom_site_dict(target_atom_site_df: pd.DataFrame) -> dict:
     df["B_iso_or_equiv"] = df["B_iso_or_equiv"].astype(float).round(2).map(lambda x: f"{x:.2f}")
 
     # Convert DataFrame to dict format for gemmi
-    return {
-        "group_PDB": df["group_PDB"].to_list(),
-        "id": df["id"].to_list(),
-        "type_symbol": df["type_symbol"].to_list(),
-        "label_atom_id": df["label_atom_id"].to_list(),
-        "label_alt_id": df["label_alt_id"].to_list(),
-        "label_comp_id": df["label_comp_id"].to_list(),
-        "label_asym_id": df["label_asym_id"].to_list(),
-        "label_entity_id": df["label_entity_id"].to_list(),
-        "label_seq_id": df["label_seq_id"].to_list(),
-        "pdbx_PDB_ins_code": df["pdbx_PDB_ins_code"].to_list(),
-        "Cartn_x": df["Cartn_x"].to_list(),
-        "Cartn_y": df["Cartn_y"].to_list(),
-        "Cartn_z": df["Cartn_z"].to_list(),
-        "occupancy": df["occupancy"].to_list(),
-        "B_iso_or_equiv": df["B_iso_or_equiv"].to_list(),
-        "auth_seq_id": df["auth_seq_id"].to_list(),
-        "auth_asym_id": df["auth_asym_id"].to_list(),
-        "pdbx_PDB_model_num": df["pdbx_PDB_model_num"].to_list(),
-    }
+    return {column: _column_to_cif_list(df, column) for column in _ATOM_SITE_COLUMNS}
 
 
 def polymer_auth_asym_id_to_label_asym_id(
@@ -215,6 +263,46 @@ def polymer_auth_asym_id_to_label_asym_id(
     return auth_asym_id_to_label_asym_id
 
 
+def _normalize_polymer_residues(df: pd.DataFrame, fix_mse_residues: bool) -> pd.DataFrame:
+    """Returns a copy of polymer sequence rows with MSE -> MET and hetero = "n"."""
+    df = df.copy()
+    if fix_mse_residues:
+        df.loc[df["mon_id"] == "MSE", "mon_id"] = "MET"
+    df.loc[:, "hetero"] = "n"  # A template has a single residue per residue number.
+    return df
+
+
+def _fixed_chain_atom_site(
+    block: gemmi.cif.Block,
+    label_asym_id: str,
+    *,
+    fix_mse_residues: bool,
+    fix_arginines: bool,
+    include_water: bool,
+) -> pd.DataFrame:
+    """Returns the fixed ``_atom_site`` rows of one chain in the first model.
+
+    The structure in ``block`` is fixed (water, alt-locs, MSE, arginines) and
+    written back to ``block``. Only the first model is kept, as AlphaFold3 reads
+    the first model of a template (e.g. of an NMR entry).
+    """
+    gemmi_structure = gemmi.make_structure_from_block(block)
+    mmcif_utils.fix_structure(
+        gemmi_structure,
+        fix_mse_residues=fix_mse_residues,
+        fix_arginine=fix_arginines,
+        include_water=include_water,
+    )
+    gemmi_structure.update_mmcif_block(block)
+
+    df_atom_site = _get_mmcif_category_as_df(block, "_atom_site")
+    df_chain = _filter_df_by_column(df_atom_site, "label_asym_id", label_asym_id)
+    if df_chain.empty:
+        return df_chain.copy()
+    first_model = df_chain["pdbx_PDB_model_num"].iloc[0]
+    return _filter_df_by_column(df_chain, "pdbx_PDB_model_num", first_model).copy()
+
+
 def mmcifcontent(
     pdbid: str,
     auth_asym_id: str,
@@ -240,19 +328,22 @@ def mmcifcontent(
         arginine will be touched. Note that HH11, HH12, HH21, HH22 are fixed too.
       fix_unknown_dna: If True, residues with name N in DNA chains will have their
         res_name replaced with DN. Atoms are not changed.
-      include_water: If True, water (HOH) molecules will be parsed. Water
-        molecules may be grouped into chains, where number of residues > 1. Water
-        molecules are usually grouped into chains but do not necessarily all share
-        the same chain ID.
+      include_water: If True, water molecules are kept when the structure is
+        fixed. The template contains only the polymer chain, so water is never
+        written, as in AlphaFold3.
       include_other: If True, all other atoms that are not included by any of the
         above parameters will be included. This covers e.g. "polypeptide(D)" and
         "macrolide" entities, as well as all other non-standard types.
     Returns:
       gemmi.cif.Block: New mmCIF block for the specified chain.
+    Raises:
+      ValueError: If a non-water entity has water molecules, which AlphaFold3
+        cannot parse, or no entity is found for the chain.
     """
     logger.info(f"Processing {pdbid} chain {auth_asym_id}...")
     cif_str = structure_store.get_mmcif_str(pdbid)
     block = gemmi.cif.read_string(cif_str)[0]
+    mmcif_utils.check_no_water_in_non_water_entities(block)
     target_chain_id = polymer_auth_asym_id_to_label_asym_id(
         block,
         protein=True,
@@ -271,30 +362,22 @@ def mmcifcontent(
     target_entity_id = _get_entity_id_for_chain(df_entity_polys, auth_asym_id)
     target_entity = _filter_df_by_column(df_entities, "id", target_entity_id)
     entity_dict = {
-        "id": target_entity["id"].values[0],
-        "pdbx_description": target_entity["pdbx_description"].values[0],
-        "type": target_entity["type"].values[0],
+        "id": _column_to_cif_list(target_entity, "id")[0],
+        "pdbx_description": _column_to_cif_list(target_entity, "pdbx_description")[0],
+        "type": _column_to_cif_list(target_entity, "type")[0],
     }
     target_poly = _filter_df_by_column(df_entity_polys, "entity_id", target_entity_id)
     poly_dict = {
-        "entity_id": target_poly["entity_id"].values[0],
+        "entity_id": _column_to_cif_list(target_poly, "entity_id")[0],
         "pdbx_strand_id": auth_asym_id,
-        "type": target_poly["type"].values[0],
+        "type": _column_to_cif_list(target_poly, "type")[0],
     }
 
     df_entity_poly_seqs = _get_mmcif_category_as_df(block, "_entity_poly_seq")
-    target_poly_seqs = _filter_df_by_column(df_entity_poly_seqs, "entity_id", target_entity_id).copy()
-    if fix_mse_residues:
-        # MSE -> MET
-        target_poly_seqs.loc[target_poly_seqs["mon_id"] == "MSE", "mon_id"] = "MET"
-    target_poly_seqs.loc[:, "hetero"] = "n"  # always set hetero to "n"
-
-    polyseq_loop_dict = {
-        "entity_id": target_poly_seqs["entity_id"].to_list(),
-        "hetero": target_poly_seqs["hetero"].to_list(),
-        "mon_id": target_poly_seqs["mon_id"].to_list(),
-        "num": target_poly_seqs["num"].to_list(),
-    }
+    target_poly_seqs = _normalize_polymer_residues(
+        _filter_df_by_column(df_entity_poly_seqs, "entity_id", target_entity_id),
+        fix_mse_residues=fix_mse_residues,
+    )
     # _exptl.method
     if block.find_value("_exptl.method") is None:
         exptl_method = "unknown"
@@ -309,26 +392,15 @@ def mmcifcontent(
 
     # _pdbx_poly_seq_scheme loop
     df_pdbx_poly_seq_scheme = _get_mmcif_category_as_df(block, "_pdbx_poly_seq_scheme")
-    # filter by target_entity_id and target_chain_id
-    target_pdbx_poly_seq_scheme = _filter_df_by_columns(
-        df_pdbx_poly_seq_scheme,
-        {"entity_id": target_entity_id, "pdb_strand_id": target_chain_id},
+    # Filter by the internal (label) chain ID: pdb_strand_id is the author chain
+    # ID, which can differ from label_asym_id (e.g. label A is author B in 7YF5).
+    target_pdbx_poly_seq_scheme = _normalize_polymer_residues(
+        _filter_df_by_columns(
+            df_pdbx_poly_seq_scheme,
+            {"entity_id": target_entity_id, "asym_id": target_chain_id},
+        ),
+        fix_mse_residues=fix_mse_residues,
     )
-    if fix_mse_residues:
-        # MSE -> MET
-        target_pdbx_poly_seq_scheme.loc[target_pdbx_poly_seq_scheme["mon_id"] == "MSE", "mon_id"] = "MET"
-    target_pdbx_poly_seq_scheme.loc[:, "hetero"] = "n"  # always set hetero to "n"
-    pdbx_polyseq_loop_dict = {
-        "asym_id": target_pdbx_poly_seq_scheme["asym_id"].to_list(),
-        "auth_seq_num": target_pdbx_poly_seq_scheme["auth_seq_num"].to_list(),
-        "entity_id": target_pdbx_poly_seq_scheme["entity_id"].to_list(),
-        "hetero": target_pdbx_poly_seq_scheme["hetero"].to_list(),
-        "mon_id": target_pdbx_poly_seq_scheme["mon_id"].to_list(),
-        "pdb_ins_code": target_pdbx_poly_seq_scheme["pdb_ins_code"].to_list(),
-        "pdb_seq_num": target_pdbx_poly_seq_scheme["pdb_seq_num"].to_list(),
-        "pdb_strand_id": target_pdbx_poly_seq_scheme["pdb_strand_id"].to_list(),
-        "seq_id": target_pdbx_poly_seq_scheme["seq_id"].to_list(),
-    }
     # _pdbx_struct_assembly loop
     df_pdbx_struct_assembly = _get_mmcif_category_as_df(block, "_pdbx_struct_assembly")
     pdbx_struct_assembly_dict = {
@@ -364,23 +436,46 @@ def mmcifcontent(
     df_struct_asym = _get_mmcif_category_as_df(block, "_struct_asym")
     target_struct_asym = _filter_df_by_column(df_struct_asym, "id", target_chain_id)
     struct_asym_dict = {
-        "entity_id": target_struct_asym["entity_id"].values[0],
-        "id": target_struct_asym["id"].values[0],
+        "entity_id": _column_to_cif_list(target_struct_asym, "entity_id")[0],
+        "id": _column_to_cif_list(target_struct_asym, "id")[0],
     }
     # _atom_site
-    # Use gemmi.Structure to modify structural information
-    gemmi_structure = gemmi.make_structure_from_block(block)
-    mmcif_utils.fix_structure(
-        gemmi_structure,
+    target_atom_site_df = _fixed_chain_atom_site(
+        block,
+        target_chain_id,
         fix_mse_residues=fix_mse_residues,
-        fix_arginine=fix_arginines,
+        fix_arginines=fix_arginines,
         include_water=include_water,
     )
-    gemmi_structure.update_mmcif_block(block)
-
-    df_atom_site = _get_mmcif_category_as_df(block, "_atom_site")
-    target_atom_site_df = _filter_df_by_column(df_atom_site, "label_asym_id", target_chain_id).copy()
     target_atom_site_dict = format_atom_site_dict(target_atom_site_df)
+
+    # Keep one residue per residue number, consistent with _atom_site.
+    resolved_names = dict(
+        zip(
+            target_atom_site_df["label_seq_id"].to_list(),
+            target_atom_site_df["label_comp_id"].to_list(),
+            strict=True,
+        )
+    )
+    target_poly_seqs = _select_heterogeneous_residues(target_poly_seqs, "num", resolved_names)
+    polyseq_loop_dict = {
+        column: _column_to_cif_list(target_poly_seqs, column) for column in ("entity_id", "hetero", "mon_id", "num")
+    }
+    target_pdbx_poly_seq_scheme = _select_heterogeneous_residues(target_pdbx_poly_seq_scheme, "seq_id", resolved_names)
+    pdbx_polyseq_loop_dict = {
+        column: _column_to_cif_list(target_pdbx_poly_seq_scheme, column)
+        for column in (
+            "asym_id",
+            "auth_seq_num",
+            "entity_id",
+            "hetero",
+            "mon_id",
+            "pdb_ins_code",
+            "pdb_seq_num",
+            "pdb_strand_id",
+            "seq_id",
+        )
+    }
 
     newdoc = gemmi.cif.Document()
     newblock = newdoc.add_new_block(block.name)

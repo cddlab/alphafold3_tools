@@ -28,6 +28,7 @@ from alphafold3tools.pdb_download import (
     download_mmcif,
 )
 from alphafold3tools.structure.mmcif_parser import mmcifcontent
+from alphafold3tools.structure.mmcif_utils import check_no_water_in_non_water_entities
 
 PROTEIN_CHAIN: Final[str] = "polypeptide(L)"
 TemplateFeatures: TypeAlias = Mapping[str, np.ndarray | bytes | Mapping[str, np.ndarray | bytes]]
@@ -670,8 +671,14 @@ def _parse_hit_metadata_with_gemmi(
     except structure_stores.NotFoundError:
         logger.warning(f"Failed to get mmCIF for {pdb_id} (author chain {auth_chain_id}).")
         return None, None, None
-    # get release date from the 1st "_pdbx_audit_revision_history.revision_date"
     block = doc.sole_block()
+    # AlphaFold3 cannot parse such an entry, so the hit is skipped.
+    try:
+        check_no_water_in_non_water_entities(block)
+    except ValueError as e:
+        logger.warning(f"Skipping {pdb_id} (author chain {auth_chain_id}): {e}")
+        return None, None, None
+    # get release date from the 1st "_pdbx_audit_revision_history.revision_date"
     model = gemmi.read_structure_string(structure_store.get_mmcif_str(pdb_id))[0]
     release_date = block.find_values("_pdbx_audit_revision_history.revision_date")[0]
     # get sequence
@@ -884,7 +891,7 @@ class Templates:
                 if unresolved_res_ids is None:
                     continue
                 if sequence is None:
-                    ValueError(f"Failed to get sequence for {pdb_id} (author chain {auth_chain_id}).")
+                    raise ValueError(f"Failed to get sequence for {pdb_id} (author chain {auth_chain_id}).")
                 else:
                     # seq_unresolved_res_num are 1-based, setting to 0-based indices.
                     unresolved_indices = [i - 1 for i in unresolved_res_ids]
@@ -997,23 +1004,26 @@ class Templates:
     ) -> Sequence[tuple[Hit, gemmi.cif.Block]]:
         """Returns hits + Structures, Structures filtered to the hit's chain."""
         results = []
-        structures = {struc.name.lower(): struc for struc in self.structures}
+        # Key by chain too: each block holds a single chain, so hits on several
+        # chains of the same PDB entry need different blocks.
+        structures = dict(self.structures)
         for hit in self.hits:
             if not hit.is_valid:
                 raise InvalidTemplateError("Hits must be filtered before calling get_hits_with_structures.")
-            block = structures[hit.pdb_id]
+            block = structures[(hit.pdb_id, hit.auth_chain_id)]
             results.append((hit, block))
         return results
 
     @property
-    def structures(self) -> Iterator[gemmi.cif.Block]:
-        """Yields template structures for each unique PDB ID among hits.
+    def structures(self) -> Iterator[tuple[tuple[str, str], gemmi.cif.Block]]:
+        """Yields template structures for each unique (PDB ID, chain) among hits.
 
-        If there are multiple hits in the same Structure, the Structure will be
+        If there are multiple hits on the same chain, the Structure will be
         included only once by this method.
 
         Yields:
-        A Structure object for each unique PDB ID among hits.
+        ``((pdb_id, auth_chain_id), block)``, where block is an mmCIF block of the
+        hit's chain only.
 
         Raises:
         HitDateError: If template's release date exceeds max cutoff date.
@@ -1030,15 +1040,18 @@ class Templates:
         targets_to_load = tuple({(hit.pdb_id, hit.auth_chain_id) for hit in self.hits})
 
         for target_name, target_chain_id in targets_to_load:
-            yield mmcifcontent(
-                target_name,
-                target_chain_id,
-                self._structure_store,
-                fix_mse_residues=True,
-                fix_arginines=True,
-                include_water=False,
-                include_bonds=False,
-                include_other=True,
+            yield (
+                (target_name, target_chain_id),
+                mmcifcontent(
+                    target_name,
+                    target_chain_id,
+                    self._structure_store,
+                    fix_mse_residues=True,
+                    fix_arginines=True,
+                    include_water=False,
+                    include_bonds=False,
+                    include_other=True,
+                ),
             )
 
 

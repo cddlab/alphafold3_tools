@@ -658,3 +658,26 @@ def test_mse_to_met_conversion():
         assert "N N . MET A 1 11 ? 7.064 64.087 55.543" in out_content
         assert "N N . MSE A 1 11 ? 7.064   64.087 55.543" not in out_content
         assert "C CA . MET A 1 11 ? 7.794 64.795 56.593" in out_content
+
+
+def _water_residues(struc: gemmi.Structure) -> list[gemmi.Residue]:
+    return [residue for model in struc for chain in model for residue in chain if residue.is_water()]
+
+
+def test_fix_structure_removes_water_by_default():
+    """Water is removed, as AlphaFold3 never uses water in templates."""
+    struc = gemmi.read_structure(str(Path(__file__).parent.parent / "testfiles" / "mmcif_files" / "1BJP.cif"))
+    assert len(_water_residues(struc)) == 78
+
+    fix_structure(struc)
+
+    assert _water_residues(struc) == []
+    assert all(len(chain) > 0 for chain in struc[0])  # Water-only chains are removed.
+
+
+def test_fix_structure_keeps_water_when_included():
+    struc = gemmi.read_structure(str(Path(__file__).parent.parent / "testfiles" / "mmcif_files" / "1BJP.cif"))
+
+    fix_structure(struc, include_water=True)
+
+    assert len(_water_residues(struc)) == 78

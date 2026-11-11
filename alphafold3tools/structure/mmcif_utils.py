@@ -212,6 +212,8 @@ def resolve_mmcif_altlocs(chain: gemmi.Chain) -> None:
     Args:
         residue: gemmi.Residue object, residue to be processed
     """
+    if len(chain) == 0:
+        return  # gemmi crashes on Chain.whole() of an empty chain.
     for group in chain.whole().residue_groups():
         if len(group) > 1:
             _process_altloc_groups_whole(group)
@@ -236,6 +238,59 @@ def mse_to_met(residue: gemmi.Residue) -> None:
                 atom.element = gemmi.Element("S")
 
 
+_WATER_ENTITY_TYPE = "water"
+# Only HOH is checked, as in AlphaFold3: DOD can be part of other residues, e.g.
+# hydroxycysteine.
+_WATER_RESIDUE_NAME = "HOH"
+# (entity ID tag, residue name tag) pairs of the tables that list residues.
+_RESIDUE_ENTITY_TAGS = (
+    ("_entity_poly_seq.entity_id", "_entity_poly_seq.mon_id"),
+    ("_pdbx_poly_seq_scheme.entity_id", "_pdbx_poly_seq_scheme.mon_id"),
+    ("_pdbx_nonpoly_scheme.entity_id", "_pdbx_nonpoly_scheme.mon_id"),
+    ("_pdbx_branch_scheme.entity_id", "_pdbx_branch_scheme.mon_id"),
+    ("_atom_site.label_entity_id", "_atom_site.label_comp_id"),
+)
+
+
+def _entity_ids_with_water(block: gemmi.cif.Block) -> set[str]:
+    """Returns the IDs of the entities that have a water (HOH) residue."""
+    entity_ids: set[str] = set()
+    for entity_tag, name_tag in _RESIDUE_ENTITY_TAGS:
+        names = list(block.find_values(name_tag))
+        if _WATER_RESIDUE_NAME not in names:
+            continue
+        entities = list(block.find_values(entity_tag))
+        if len(entities) != len(names):
+            continue
+        entity_ids.update(entity for entity, name in zip(entities, names, strict=True) if name == _WATER_RESIDUE_NAME)
+    return entity_ids
+
+
+def check_no_water_in_non_water_entities(block: gemmi.cif.Block) -> None:
+    """Rejects an mmCIF in which a non-water entity has water molecules.
+
+    AlphaFold3 refuses to parse such files ("Bad mmCIF file: non-water entity has
+    water molecules.", structure/parsing.py), so they cannot be used as templates.
+    Entities without a type in ``_entity`` are not checked.
+
+    Args:
+        block: gemmi.cif.Block of the whole mmCIF entry.
+
+    Raises:
+        ValueError: If a water (HOH) residue belongs to a non-water entity.
+    """
+    ids = list(block.find_values("_entity.id"))
+    types = list(block.find_values("_entity.type"))
+    entity_types = dict(zip(ids, types, strict=True)) if len(ids) == len(types) else {}
+    bad_entity_ids = sorted(
+        entity_id
+        for entity_id in _entity_ids_with_water(block)
+        if entity_types.get(entity_id, _WATER_ENTITY_TYPE) != _WATER_ENTITY_TYPE
+    )
+    if bad_entity_ids:
+        raise ValueError(f"Bad mmCIF file: non-water entity has water molecules (entity {', '.join(bad_entity_ids)}).")
+
+
 def fix_structure(
     struc: gemmi.Structure,
     fix_mse_residues: bool = True,
@@ -245,17 +300,25 @@ def fix_structure(
     """
     fix residues in mmCIF data.
     1. Treat deuterium as fraction of hydrogen (Deuterium is the same as hydrogen)
-    2. MSE -> MET conversion (fix_mse_residues=True)
-    3. fix arginine residues with swapped NH1 and NH2 atom names (fix_arginine=True)
-    4. resolve alternative locations
+    2. Remove water molecules (include_water=False), as AlphaFold3 does
+    3. MSE -> MET conversion (fix_mse_residues=True)
+    4. fix arginine residues with swapped NH1 and NH2 atom names (fix_arginine=True)
+    5. resolve alternative locations
 
     Args:
         struc: gemmi.Structure object, mmCIF data to be fixed
         fix_mse_residues: bool, whether to convert MSE residues to MET.
         fix_arginine: bool, whether to fix arginine residues with swapped NH1 and NH2 atom names
+        include_water: bool, whether to keep water molecules. AlphaFold3 never uses
+            water in templates, so it is False by default.
     """
     # treat deuterium as fraction of hydrogen
     struc.store_deuterium_as_fraction(True)
+    if not include_water:
+        struc.remove_waters()
+        # Chains that held only water are left empty, and gemmi crashes on
+        # Chain.whole() of an empty chain in resolve_mmcif_altlocs.
+        struc.remove_empty_chains()
     for model in struc:
         for chain in model:
             resolve_mmcif_altlocs(chain)

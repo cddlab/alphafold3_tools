@@ -170,6 +170,45 @@ def test_from_hmmsearch_a3m_stops_when_download_limit_is_reached():
     assert store.requested == ["3ghi"]
 
 
+def _full_length_hit(store: structure_stores.StructureStore, pdb_id: str, auth_chain_id: str) -> searchtemplates.Hit:
+    """A hit aligning the whole chain to a query of the same sequence."""
+    release_date, sequence, unresolved_res_ids = _parse_hit_metadata_with_gemmi(store, pdb_id, auth_chain_id)
+    assert release_date is not None and sequence is not None and unresolved_res_ids is not None
+    return searchtemplates.Hit(
+        pdb_id=pdb_id,
+        auth_chain_id=auth_chain_id,
+        hmmsearch_sequence=sequence,
+        structure_sequence=sequence,
+        unresolved_res_indices=[i - 1 for i in unresolved_res_ids],
+        query_sequence=sequence,
+        start_index=0,
+        end_index=len(sequence),
+        full_length=len(sequence),
+        release_date=datetime.date.fromisoformat(release_date),
+        chain_poly_type=PROTEIN_CHAIN,
+    )
+
+
+def test_get_hits_with_structures_keeps_each_chain_of_the_same_entry():
+    """Hits on two chains of one entry get the structure of their own chain.
+
+    7YF5 also has label chain A = author chain B and label chain B = author chain A.
+    """
+    mmcif = (Path(__file__).parent.parent / "testfiles" / "mmcif_files" / "7YF5.cif").read_text()
+    store = structure_stores.StructureStore({"7yf5": mmcif})
+    hits = [_full_length_hit(store, "7yf5", chain_id) for chain_id in ("A", "B")]
+    templates = Templates(
+        query_sequence=hits[0].query_sequence,
+        hits=hits,
+        max_template_date=datetime.date(2099, 12, 31),
+        structure_store=store,
+    )
+
+    for hit, block in templates.get_hits_with_structures():
+        assert set(block.find_values("_atom_site.auth_asym_id")) == {hit.auth_chain_id}
+        assert set(block.find_values("_pdbx_poly_seq_scheme.pdb_strand_id")) == {hit.auth_chain_id}
+
+
 def test_parse_hit_metadata_with_gemmi():
     """Test parsing hit metadata from a PDB file using gemmi."""
 
