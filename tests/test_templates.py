@@ -177,9 +177,7 @@ def test_parse_hit_metadata_with_gemmi():
         with TemporaryDirectory() as temp_dir:
             _download_mmcif_file_for_pdbid(pdb_id, temp_dir)
             cif_dir = structure_stores.StructureStore(temp_dir)
-            release_date, sequence, unresolved_res_ids = _parse_hit_metadata_with_gemmi(
-                cif_dir, pdb_id, auth_chain_id
-            )
+            release_date, sequence, unresolved_res_ids = _parse_hit_metadata_with_gemmi(cif_dir, pdb_id, auth_chain_id)
             return release_date, sequence, unresolved_res_ids
 
     assert (
@@ -405,9 +403,7 @@ def test_2z9g_full_pipeline():
     if not a3mfile.exists():
         pytest.skip(f"Test file {a3mfile} not found")
 
-    seqres_database_path = (
-        Path(__file__).parent.parent / "testfiles" / "seqres" / "test_pdb_seqres.txt"
-    )
+    seqres_database_path = Path(__file__).parent.parent / "testfiles" / "seqres" / "test_pdb_seqres.txt"
     pdb_database_path = Path(__file__).parent.parent / "testfiles" / "mmcif_files"
 
     if not seqres_database_path.exists() or not pdb_database_path.exists():
@@ -420,9 +416,7 @@ def test_2z9g_full_pipeline():
         query_sequence = sequences[0]
 
     # Expected query sequence properties for 2z9g
-    assert len(query_sequence) == 306, (
-        f"Expected query sequence length 306, got {len(query_sequence)}"
-    )
+    assert len(query_sequence) == 306, f"Expected query sequence length 306, got {len(query_sequence)}"
     assert query_sequence.startswith(
         "SGFRKMAFPSGKVEGCMVQVTCGTTTLNGLWLDDTVYCPRHVICTAEDMLNPNYEDLLIRKSNHSFLVQAGNVQLRVIGHSMQNCLLRLKVDTSNPKTPKYKFVRIQPGQTFSVLACYNGSPSGVYQCAMRP"
     )
@@ -508,9 +502,7 @@ def test_ras_full_pipeline():
         pytest.skip(f"Test file {a3mfile} not found")
 
     # Skip if pdb_seqres.txt is not available in Desktop (full test data)
-    seqres_database_path = (
-        Path(__file__).parent.parent / "testfiles" / "seqres" / "test_pdb_seqres.txt"
-    )
+    seqres_database_path = Path(__file__).parent.parent / "testfiles" / "seqres" / "test_pdb_seqres.txt"
     pdb_database_path = Path(__file__).parent.parent / "testfiles" / "mmcif_files"
 
     if not seqres_database_path.exists() or not pdb_database_path.exists():

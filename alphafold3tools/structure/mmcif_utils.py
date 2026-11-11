@@ -110,8 +110,7 @@ def _process_altloc_groups_whole(group: gemmi.ResidueGroup) -> None:
             continue
 
         avg_occupancy_by_altloc = {
-            altloc_id: altloc_occupancies[altloc_id] / altloc_counts[altloc_id]
-            for altloc_id in altloc_groups.keys()
+            altloc_id: altloc_occupancies[altloc_id] / altloc_counts[altloc_id] for altloc_id in altloc_groups.keys()
         }
         total_avg_occupancy = sum(avg_occupancy_by_altloc.values())
 
@@ -178,12 +177,8 @@ def _process_altloc_group_partial(group: gemmi.ResidueGroup) -> None:
             best_occ = -1.0
             best_altloc = None
 
-            for atom, occ, altloc in sorted(
-                atom_list, key=lambda x: (x[1], x[2]), reverse=True
-            ):
-                if occ > best_occ or (
-                    occ == best_occ and (best_altloc is None or altloc < best_altloc)
-                ):
+            for atom, occ, altloc in sorted(atom_list, key=lambda x: (x[1], x[2]), reverse=True):
+                if occ > best_occ or (occ == best_occ and (best_altloc is None or altloc < best_altloc)):
                     best_occ = occ
                     best_atom = atom
                     best_altloc = altloc

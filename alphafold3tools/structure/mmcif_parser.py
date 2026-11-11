@@ -15,11 +15,7 @@ def _sort_dict_by_keys(d):
 
 def _get_entity_id_for_chain(df_entity_polys, target_chain_id: str) -> str:
     """Get entity_id for a given chain ID from entity_poly DataFrame (vectorized)."""
-    mask = (
-        df_entity_polys["pdbx_strand_id"]
-        .str.split(",")
-        .apply(lambda chains: target_chain_id in chains)
-    )
+    mask = df_entity_polys["pdbx_strand_id"].str.split(",").apply(lambda chains: target_chain_id in chains)
     matching_rows = df_entity_polys[mask]
 
     if len(matching_rows) == 0:
@@ -27,9 +23,7 @@ def _get_entity_id_for_chain(df_entity_polys, target_chain_id: str) -> str:
     return matching_rows.iloc[0]["entity_id"]
 
 
-def _get_mmcif_category_as_df(
-    block: gemmi.cif.Block, category_name: str
-) -> pd.DataFrame:
+def _get_mmcif_category_as_df(block: gemmi.cif.Block, category_name: str) -> pd.DataFrame:
     """Get mmCIF category as pandas DataFrame.
 
     Args:
@@ -121,9 +115,7 @@ def format_atom_site_dict(target_atom_site_df: pd.DataFrame) -> dict:
     df["occupancy"] = df["occupancy"].astype(float).round(2).map(lambda x: f"{x:.2f}")
 
     # B_iso_or_equiv should have 2 decimal places
-    df["B_iso_or_equiv"] = (
-        df["B_iso_or_equiv"].astype(float).round(2).map(lambda x: f"{x:.2f}")
-    )
+    df["B_iso_or_equiv"] = df["B_iso_or_equiv"].astype(float).round(2).map(lambda x: f"{x:.2f}")
 
     # Convert DataFrame to dict format for gemmi
     return {
@@ -203,10 +195,7 @@ def polymer_auth_asym_id_to_label_asym_id(
     struc = gemmi.make_structure_from_block(block)
     model = struc[0]
     polymer_label_asym_ids = [
-        subchain
-        for entity in struc.entities
-        if entity.polymer_type in allowed_types
-        for subchain in entity.subchains
+        subchain for entity in struc.entities if entity.polymer_type in allowed_types for subchain in entity.subchains
     ]
     for chain in model:
         for subchain in chain.subchains():
@@ -294,9 +283,7 @@ def mmcifcontent(
     }
 
     df_entity_poly_seqs = _get_mmcif_category_as_df(block, "_entity_poly_seq")
-    target_poly_seqs = _filter_df_by_column(
-        df_entity_poly_seqs, "entity_id", target_entity_id
-    ).copy()
+    target_poly_seqs = _filter_df_by_column(df_entity_poly_seqs, "entity_id", target_entity_id).copy()
     if fix_mse_residues:
         # MSE -> MET
         target_poly_seqs.loc[target_poly_seqs["mon_id"] == "MSE", "mon_id"] = "MET"
@@ -314,15 +301,11 @@ def mmcifcontent(
     else:
         exptl_method = block.find_value("_exptl.method")
     # _pdbx_audit_revision_history.revision_date: only the first row
-    df_revision_histories = _get_mmcif_category_as_df(
-        block, "_pdbx_audit_revision_history"
-    )
+    df_revision_histories = _get_mmcif_category_as_df(block, "_pdbx_audit_revision_history")
     first_revision = df_revision_histories.iloc[0]
     first_revision_date = first_revision["revision_date"]
     # _pdbx_database_status.recvd_initial_deposition_date
-    initial_deposition_date = block.find_value(
-        "_pdbx_database_status.recvd_initial_deposition_date"
-    )
+    initial_deposition_date = block.find_value("_pdbx_database_status.recvd_initial_deposition_date")
 
     # _pdbx_poly_seq_scheme loop
     df_pdbx_poly_seq_scheme = _get_mmcif_category_as_df(block, "_pdbx_poly_seq_scheme")
@@ -333,9 +316,7 @@ def mmcifcontent(
     )
     if fix_mse_residues:
         # MSE -> MET
-        target_pdbx_poly_seq_scheme.loc[
-            target_pdbx_poly_seq_scheme["mon_id"] == "MSE", "mon_id"
-        ] = "MET"
+        target_pdbx_poly_seq_scheme.loc[target_pdbx_poly_seq_scheme["mon_id"] == "MSE", "mon_id"] = "MET"
     target_pdbx_poly_seq_scheme.loc[:, "hetero"] = "n"  # always set hetero to "n"
     pdbx_polyseq_loop_dict = {
         "asym_id": target_pdbx_poly_seq_scheme["asym_id"].to_list(),
@@ -355,25 +336,17 @@ def mmcifcontent(
         "id": _safe_to_list(df_pdbx_struct_assembly, "id"),
         "method_details": _safe_to_list(df_pdbx_struct_assembly, "method_details"),
         "oligomeric_count": _safe_to_list(df_pdbx_struct_assembly, "oligomeric_count"),
-        "oligomeric_details": _safe_to_list(
-            df_pdbx_struct_assembly, "oligomeric_details"
-        ),
+        "oligomeric_details": _safe_to_list(df_pdbx_struct_assembly, "oligomeric_details"),
     }
     # _pdbx_struct_assembly_gen
-    df_pdbx_struct_assembly_gen = _get_mmcif_category_as_df(
-        block, "_pdbx_struct_assembly_gen"
-    )
+    df_pdbx_struct_assembly_gen = _get_mmcif_category_as_df(block, "_pdbx_struct_assembly_gen")
     pdbx_structure_assembly_gen_dict = {
         "assembly_id": _safe_to_list(df_pdbx_struct_assembly_gen, "assembly_id"),
         "asym_id_list": _safe_to_list(df_pdbx_struct_assembly_gen, "asym_id_list"),
-        "oper_expression": _safe_to_list(
-            df_pdbx_struct_assembly_gen, "oper_expression"
-        ),
+        "oper_expression": _safe_to_list(df_pdbx_struct_assembly_gen, "oper_expression"),
     }
     # _pdbx_struct_oper_list
-    pdbx_struct_oper_list = _sort_dict_by_keys(
-        block.get_mmcif_category("_pdbx_struct_oper_list")
-    )
+    pdbx_struct_oper_list = _sort_dict_by_keys(block.get_mmcif_category("_pdbx_struct_oper_list"))
     # _refine.ls_d_res_high
     # This block doesn't exist in Solution NMR. If so, pass None.
     if block.find_value("_refine.ls_d_res_high") is None:
@@ -406,9 +379,7 @@ def mmcifcontent(
     gemmi_structure.update_mmcif_block(block)
 
     df_atom_site = _get_mmcif_category_as_df(block, "_atom_site")
-    target_atom_site_df = _filter_df_by_column(
-        df_atom_site, "label_asym_id", target_chain_id
-    ).copy()
+    target_atom_site_df = _filter_df_by_column(df_atom_site, "label_asym_id", target_chain_id).copy()
     target_atom_site_dict = format_atom_site_dict(target_atom_site_df)
 
     newdoc = gemmi.cif.Document()
@@ -420,14 +391,10 @@ def mmcifcontent(
     newblock.set_mmcif_category("_entity_poly_seq", polyseq_loop_dict)
     newblock.set_pair("_exptl.method", exptl_method)
     newblock.set_pair("_pdbx_audit_revision_history.revision_date", first_revision_date)
-    newblock.set_pair(
-        "_pdbx_database_status.recvd_initial_deposition_date", initial_deposition_date
-    )
+    newblock.set_pair("_pdbx_database_status.recvd_initial_deposition_date", initial_deposition_date)
     newblock.set_mmcif_category("_pdbx_poly_seq_scheme", pdbx_polyseq_loop_dict)
     newblock.set_mmcif_category("_pdbx_struct_assembly.", pdbx_struct_assembly_dict)
-    newblock.set_mmcif_category(
-        "_pdbx_struct_assembly_gen.", pdbx_structure_assembly_gen_dict
-    )
+    newblock.set_mmcif_category("_pdbx_struct_assembly_gen.", pdbx_structure_assembly_gen_dict)
     newblock.set_mmcif_category("_pdbx_struct_oper_list", pdbx_struct_oper_list)
     if refine_ls_d_res_high is not None:
         newblock.set_pair("_refine.ls_d_res_high", refine_ls_d_res_high)

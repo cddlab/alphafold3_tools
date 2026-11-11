@@ -462,10 +462,7 @@ def test_process_altloc_groups_whole():
                 _process_altloc_groups_whole(group)
 
         out_content = struc.make_mmcif_block().as_string()
-        assert (
-            "ATOM 37 N N . SER A 1 58 ? 26.205 6.158 0.638 0.6 19.37 ? 64 A 1"
-            in out_content
-        )
+        assert "ATOM 37 N N . SER A 1 58 ? 26.205 6.158 0.638 0.6 19.37 ? 64 A 1" in out_content
 
 
 def test_process_altloc_groups_whole2():
@@ -484,10 +481,7 @@ def test_process_altloc_groups_whole2():
                 _process_altloc_groups_whole(group)
 
         out_content = struc.make_mmcif_block().as_string()
-        assert (
-            "HETATM 37 N N . SEP A 1 58 ? 26.196 6.18 0.656 0.6 19.35 ? 64 A 1"
-            in out_content
-        )
+        assert "HETATM 37 N N . SEP A 1 58 ? 26.196 6.18 0.656 0.6 19.35 ? 64 A 1" in out_content
 
 
 def test_resolve_mmcif_altlocs():
@@ -505,14 +499,8 @@ def test_resolve_mmcif_altlocs():
             resolve_mmcif_altlocs(chain)
 
         out_content = struc.make_mmcif_block().as_string()
-        assert (
-            "ATOM 13 C CA . GLU A 1 42 ? -14.547 -8.571 -23.581 0.51 23.21 ? 49 A 1"
-            in out_content
-        )
-        assert (
-            "ATOM 31 N N . SER A 1 58 ? 26.205 6.158 0.638 0.6 19.37 ? 64 A 1"
-            in out_content
-        )
+        assert "ATOM 13 C CA . GLU A 1 42 ? -14.547 -8.571 -23.581 0.51 23.21 ? 49 A 1" in out_content
+        assert "ATOM 31 N N . SER A 1 58 ? 26.205 6.158 0.638 0.6 19.37 ? 64 A 1" in out_content
 
 
 def test_resolve_mmcif_altlocs2():
@@ -530,14 +518,8 @@ def test_resolve_mmcif_altlocs2():
             resolve_mmcif_altlocs(chain)
 
         out_content = struc.make_mmcif_block().as_string()
-        assert (
-            "ATOM 13 C CA . GLU A 1 42 ? -14.547 -8.571 -23.581 0.51 23.21 ? 49 A 1"
-            in out_content
-        )
-        assert (
-            "HETATM 31 N N . SEP A 1 58 ? 26.196 6.18 0.656 0.6 19.35 ? 64 A 1"
-            in out_content
-        )
+        assert "ATOM 13 C CA . GLU A 1 42 ? -14.547 -8.571 -23.581 0.51 23.21 ? 49 A 1" in out_content
+        assert "HETATM 31 N N . SEP A 1 58 ? 26.196 6.18 0.656 0.6 19.35 ? 64 A 1" in out_content
 
 
 def test_deuterium_to_hydrogen_conversion():
@@ -620,17 +602,9 @@ def test_deuterium_to_hydrogen_conversion():
         struc = gemmi.read_structure(str(cif_path))
         fix_structure(struc)
         out_content = struc.make_mmcif_block().as_string()
-        assert (
-            "ATOM 26 C CG . GLU A 1 9 ? -7.856 7.382 13.132 0.51 16.75 ? 9 A 1 0"
-            in out_content
-        )
-        assert (
-            "ATOM 12 H H . PHE A 1 8 ? -4.939 5.9 7.198 1 15 ? 8 A 1 1" in out_content
-        )
-        assert (
-            "ATOM 12 D D . PHE A 1 8 ? -4.939 5.9 7.198 1 15 ? 8 A 1 1"
-            not in out_content
-        )
+        assert "ATOM 26 C CG . GLU A 1 9 ? -7.856 7.382 13.132 0.51 16.75 ? 9 A 1 0" in out_content
+        assert "ATOM 12 H H . PHE A 1 8 ? -4.939 5.9 7.198 1 15 ? 8 A 1 1" in out_content
+        assert "ATOM 12 D D . PHE A 1 8 ? -4.939 5.9 7.198 1 15 ? 8 A 1 1" not in out_content
 
 
 def test_mse_to_met_conversion():

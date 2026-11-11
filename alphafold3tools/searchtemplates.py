@@ -30,9 +30,7 @@ from alphafold3tools.pdb_download import (
 from alphafold3tools.structure.mmcif_parser import mmcifcontent
 
 PROTEIN_CHAIN: Final[str] = "polypeptide(L)"
-TemplateFeatures: TypeAlias = Mapping[
-    str, np.ndarray | bytes | Mapping[str, np.ndarray | bytes]
-]
+TemplateFeatures: TypeAlias = Mapping[str, np.ndarray | bytes | Mapping[str, np.ndarray | bytes]]
 NestedInts: TypeAlias = int | Sequence["NestedInts"]
 
 
@@ -274,9 +272,7 @@ def convert_stockholm_to_a3m(
         fasta_chunks.append(f">{seqname} {descriptions.get(seqname, '')}")
 
         if linewidth:
-            fasta_chunks.extend(
-                seq[i : linewidth + i] for i in range(0, len(seq), linewidth)
-            )
+            fasta_chunks.extend(seq[i : linewidth + i] for i in range(0, len(seq), linewidth))
         else:
             fasta_chunks.append(seq)
 
@@ -475,9 +471,7 @@ class Hit:
         if self.unresolved_res_indices is None:
             return False
 
-        return bool(
-            set(self.query_to_hit_mapping.values()) - set(self.unresolved_res_indices)
-        )
+        return bool(set(self.query_to_hit_mapping.values()) - set(self.unresolved_res_indices))
 
     @property
     def full_name(self) -> str:
@@ -530,9 +524,7 @@ class Hit:
         logger.debug(f"Checking hit {self.full_name}")
         # Exclude hits which are too recent.
         if release_date_cutoff is not None and self.release_date > release_date_cutoff:
-            logger.debug(
-                f"Hit {self.full_name} is too recent. ({self.release_date} > {release_date_cutoff})"
-            )
+            logger.debug(f"Hit {self.full_name} is too recent. ({self.release_date} > {release_date_cutoff})")
             return False
 
         # Exclude hits which are large duplicates of the query_sequence or too short.
@@ -605,9 +597,7 @@ def _filter_hits(
     filtered_hits = []
     seen_before = set()
     for hit in hits:
-        logger.info(
-            f"Evaluating hit {hit.full_name} with release date {hit.release_date}"
-        )
+        logger.info(f"Evaluating hit {hit.full_name} with release date {hit.release_date}")
         if not hit.keep(
             max_subsequence_ratio=max_subsequence_ratio,
             min_align_ratio=min_align_ratio,
@@ -678,18 +668,14 @@ def _parse_hit_metadata_with_gemmi(
     try:
         doc = gemmi.cif.read_string(structure_store.get_mmcif_str(pdb_id))
     except structure_stores.NotFoundError:
-        logger.warning(
-            f"Failed to get mmCIF for {pdb_id} (author chain {auth_chain_id})."
-        )
+        logger.warning(f"Failed to get mmCIF for {pdb_id} (author chain {auth_chain_id}).")
         return None, None, None
     # get release date from the 1st "_pdbx_audit_revision_history.revision_date"
     block = doc.sole_block()
     model = gemmi.read_structure_string(structure_store.get_mmcif_str(pdb_id))[0]
     release_date = block.find_values("_pdbx_audit_revision_history.revision_date")[0]
     # get sequence
-    entity_polys = block.find(
-        "_entity_poly.", ["type", "pdbx_seq_one_letter_code_can", "pdbx_strand_id"]
-    )
+    entity_polys = block.find("_entity_poly.", ["type", "pdbx_seq_one_letter_code_can", "pdbx_strand_id"])
     logger.debug(f"Got entity_polys for {pdb_id}: {entity_polys}")
     # Extract the sequence for the entity_poly matching auth_chain_id regardless
     # of polymer type. A template PDB may contain bystander chains of other types
@@ -709,16 +695,12 @@ def _parse_hit_metadata_with_gemmi(
             sequence = entity_poly.str(1).replace("\n", "")
             break
     if sequence is None:
-        raise ValueError(
-            f"No _entity_poly entry found for auth chain {auth_chain_id} in {pdb_id}."
-        )
+        raise ValueError(f"No _entity_poly entry found for auth chain {auth_chain_id} in {pdb_id}.")
     # missing residues
     label_asym_residues = model[auth_chain_id].get_polymer()
     all_res_ids = np.arange(1, len(sequence) + 1)
     resolved_res_ids = np.array([res.label_seq for res in label_asym_residues])
-    unresolved_res_ids = (
-        np.isin(all_res_ids, resolved_res_ids, invert=True).nonzero()[0] + 1
-    ).tolist()
+    unresolved_res_ids = (np.isin(all_res_ids, resolved_res_ids, invert=True).nonzero()[0] + 1).tolist()
     return (release_date, sequence, unresolved_res_ids)
 
 
@@ -880,9 +862,7 @@ class Templates:
                 return  # Hmmsearch could return an empty string if there are no hits.
 
             for hit_seq, hit_desc in fasta_string_iterator(a3m):
-                pdb_id, auth_chain_id, start, end, full_length = _parse_hit_description(
-                    hit_desc
-                )
+                pdb_id, auth_chain_id, start, end, full_length = _parse_hit_description(hit_desc)
                 # Skip hits that would be rejected anyway before reading (or
                 # downloading) their structure.
                 if _rejected_without_structure(
@@ -895,10 +875,8 @@ class Templates:
                     continue
 
                 try:
-                    release_date, sequence, unresolved_res_ids = (
-                        _parse_hit_metadata_with_gemmi(
-                            structure_store, pdb_id, auth_chain_id
-                        )
+                    release_date, sequence, unresolved_res_ids = _parse_hit_metadata_with_gemmi(
+                        structure_store, pdb_id, auth_chain_id
                     )
                 except DownloadLimitReachedError as e:
                     logger.warning(f"{e} The remaining template candidates are skipped.")
@@ -906,10 +884,7 @@ class Templates:
                 if unresolved_res_ids is None:
                     continue
                 if sequence is None:
-                    ValueError(
-                        f"Failed to get sequence for {pdb_id} (author chain "
-                        f"{auth_chain_id})."
-                    )
+                    ValueError(f"Failed to get sequence for {pdb_id} (author chain {auth_chain_id}).")
                 else:
                     # seq_unresolved_res_num are 1-based, setting to 0-based indices.
                     unresolved_indices = [i - 1 for i in unresolved_res_ids]
@@ -1025,9 +1000,7 @@ class Templates:
         structures = {struc.name.lower(): struc for struc in self.structures}
         for hit in self.hits:
             if not hit.is_valid:
-                raise InvalidTemplateError(
-                    "Hits must be filtered before calling get_hits_with_structures."
-                )
+                raise InvalidTemplateError("Hits must be filtered before calling get_hits_with_structures.")
             block = structures[hit.pdb_id]
             results.append((hit, block))
         return results
@@ -1155,9 +1128,7 @@ class ProteinChain:
         if any(not 0 < mod[1] <= len(sequence) for mod in ptms):
             raise ValueError(f"Invalid protein modification index: {ptms}")
         if any(mod[0].startswith("CCD_") for mod in ptms):
-            raise ValueError(
-                f'Protein ptms must not contain the "CCD_" prefix, got {ptms}'
-            )
+            raise ValueError(f'Protein ptms must not contain the "CCD_" prefix, got {ptms}')
         # Use hashable containers for ptms and templates.
         self._id = id
         self._sequence = sequence
@@ -1236,11 +1207,7 @@ def run_hmmsearch_with_a3m(
             sto_file.write(sto)
         # hmmbuild --informat stockholm --hand --amino out.hmm {sto}
         if hmmbuild_binary_path is None:
-            raise ValueError(
-                "hmmbuild command is not found. "
-                "Please install HMMER and ensure "
-                "hmmbuild is in your PATH."
-            )
+            raise ValueError("hmmbuild command is not found. Please install HMMER and ensure hmmbuild is in your PATH.")
         hmmbuild_cmd = [
             hmmbuild_binary_path,
             "--informat",
@@ -1261,9 +1228,7 @@ def run_hmmsearch_with_a3m(
         # --domE 100 --incdomE 100 -A orf5_templates.sto output.hmm pdb_seqres.txt
         if hmmsearch_binary_path is None:
             raise ValueError(
-                "hmmsearch command is not found. "
-                "Please install HMMER and ensure "
-                "hmmsearch is in your PATH."
+                "hmmsearch command is not found. Please install HMMER and ensure hmmsearch is in your PATH."
             )
         hmmsearch_sto_path = os.path.join(tmpdir, "hmmsearch.sto")
         hmmsearch_cmd = [
@@ -1293,9 +1258,7 @@ def run_hmmsearch_with_a3m(
         subprocess.run(hmmsearch_cmd, check=True, capture_output=True)
         # convert to a3m
         with open(hmmsearch_sto_path, "r") as f:
-            hmmsearch_a3m = convert_stockholm_to_a3m(
-                stockholm=f, remove_first_row_gaps=False, linewidth=60
-            )
+            hmmsearch_a3m = convert_stockholm_to_a3m(stockholm=f, remove_first_row_gaps=False, linewidth=60)
         if hmmsearch_sto_output_path is not None:
             shutil.copy(hmmsearch_sto_path, hmmsearch_sto_output_path)
 
