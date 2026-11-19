@@ -86,6 +86,31 @@ def int_id_to_str_id(num: int) -> str:
     return "".join(output)
 
 
+SEED_SAMPLE_DIR_PATTERN: Final[re.Pattern[str]] = re.compile(r"seed-(\d+)_sample-(\d+)")
+
+
+def get_seed_sample_numbers(dir: str | Path) -> dict[int, list[int]]:
+    """Get the seed and diffusion sample numbers from the subdirectory names.
+
+    AlphaFold3 writes each prediction to a "seed-<M>_sample-<N>" subdirectory.
+    The number of diffusion samples per seed is 5 by default, but it can be
+    changed with --num_diffusion_samples, so N is not limited to 0-4.
+
+    Args:
+        dir (str | Path): Directory containing the subdirectories
+
+    Returns:
+        dict[int, list[int]]: Mapping from each seed number to its sample
+            numbers. Both seeds and samples are sorted in ascending numerical
+            order (e.g. sample-10 comes after sample-9).
+    """
+    seed_samples: dict[int, list[int]] = {}
+    for d in Path(dir).iterdir():
+        if d.is_dir() and (m := SEED_SAMPLE_DIR_PATTERN.fullmatch(d.name)):
+            seed_samples.setdefault(int(m.group(1)), []).append(int(m.group(2)))
+    return {seed: sorted(samples) for seed, samples in sorted(seed_samples.items())}
+
+
 def get_seednumbers(dir: str | Path) -> list[int]:
     """Get the seed numbers from the directory names.
 
@@ -95,12 +120,7 @@ def get_seednumbers(dir: str | Path) -> list[int]:
     Returns:
         list[int]: List of seed numbers
     """
-    pattern = re.compile(r"seed-(\d+)_sample-[0-4]")
-    subdirs = [d for d in Path(dir).iterdir() if d.is_dir() and pattern.match(d.name)]
-    seednumbers: list[int] = list(
-        {int(m.group(1)) for d in subdirs if (m := pattern.match(d.name))}
-    )
-    return sorted(seednumbers)
+    return list(get_seed_sample_numbers(dir))
 
 
 def to_json(content: dict) -> str:

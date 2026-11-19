@@ -6,12 +6,10 @@ import gemmi
 from loguru import logger
 
 from alphafold3tools.log import log_setup
-from alphafold3tools.utils import add_version_option, get_seednumbers
+from alphafold3tools.utils import add_version_option, get_seed_sample_numbers
 
 
-def superpose_ciffiles(
-    inputdir: str, outciffile: str = "", chain_id: str = "A", objectname: str = ""
-) -> None:
+def superpose_ciffiles(inputdir: str, outciffile: str = "", chain_id: str = "A", objectname: str = "") -> None:
     """Superpose all models in the input directory and write to the output CIF file.
     Args:
         inputdir (str): input directory containing model.cif files
@@ -27,24 +25,22 @@ def superpose_ciffiles(
         # if inputdir ends with "/", remove it.
         if inputdir.endswith("/"):
             inputdir = inputdir[:-1]
-        outciffile = os.path.join(
-            inputdir, os.path.basename(inputdir) + "_superposed.cif"
-        )
+        outciffile = os.path.join(inputdir, os.path.basename(inputdir) + "_superposed.cif")
     logger.info(f"Output file: {outciffile}")
 
-    seednumbers = get_seednumbers(inputdir)
+    seed_samples = get_seed_sample_numbers(inputdir)
+    if not seed_samples:
+        raise FileNotFoundError(f"No seed-*_sample-* subdirectories found in {inputdir}.")
     dir = Path(inputdir).resolve()
     basename = Path(dir).name
     if objectname == "":
         objectname = basename
     ciffiles = []
-    for seed in seednumbers:
-        for j in range(5):
+    for seed, samples in seed_samples.items():
+        for j in samples:
             subdir = os.path.join(inputdir, f"seed-{seed}_sample-{j}")
             # after 2025-03-10, the name of ciffile is f"{basename}_{model_name}_model.cif
-            new_ciffilename = os.path.join(
-                subdir, f"{basename}_seed-{seed}_sample-{j}_model.cif"
-            )
+            new_ciffilename = os.path.join(subdir, f"{basename}_seed-{seed}_sample-{j}_model.cif")
             # before 2025-03-10, the name of ciffile was "model.cif"
             old_ciffilename = os.path.join(subdir, "model.cif")
             if os.path.exists(new_ciffilename):
@@ -52,9 +48,7 @@ def superpose_ciffiles(
             elif os.path.exists(old_ciffilename):
                 modelfile = old_ciffilename
             else:
-                raise FileNotFoundError(
-                    f"{old_ciffilename} or {new_ciffilename} not found in {subdir}."
-                )
+                raise FileNotFoundError(f"{old_ciffilename} or {new_ciffilename} not found in {subdir}.")
             ciffiles.append(modelfile)
     outdoc = gemmi.cif.Document()
     for ciffile in ciffiles:
@@ -88,9 +82,7 @@ def superpose_ciffiles(
                 trim_cycles=3,
                 trim_cutoff=2.0,
             )
-            logger.info(
-                f"{blockname}: Superposition onto {ref_name}. RMSD: {sup.rmsd:.2f} Å"
-            )
+            logger.info(f"{blockname}: Superposition onto {ref_name}. RMSD: {sup.rmsd:.2f} Å")
             model.transform_pos_and_adp(sup.transform)
             new_block = structure.make_mmcif_block()
             new_block.name = blockname
